@@ -106,17 +106,20 @@ pub async fn cas_login(name: &str, target_url: &str) -> Result<CasResult> {
     })
 }
 
+/// cookie 累积表的 key：RFC 6265 §5.3 的 (name, domain, path) 三元组。
+/// 同名同域但不同 path 是两条独立 cookie，这里显式分开存。
+pub(super) type CookieKey = (String, String, String);
+
 /// 手动跟 302 链。返回 (累积 cookie, 最终 URL)。
 async fn follow_redirect_chain(
     client: &Client,
     target_url: &str,
-) -> Result<(HashMap<(String, String), Cookie>, String)> {
+) -> Result<(HashMap<CookieKey, Cookie>, String)> {
     let mut url: Url = target_url
         .parse()
         .map_err(|e| SjtuCliError::InvalidInput(format!("非法 URL `{target_url}`: {e}")))?;
 
-    // (name, domain) 复合键去重（避免同名不同域被覆盖）。
-    let mut collected: HashMap<(String, String), Cookie> = HashMap::new();
+    let mut collected: HashMap<CookieKey, Cookie> = HashMap::new();
 
     for hop in 0..MAX_REDIRECT_HOPS {
         debug!(hop, url = %url, "CAS hop");
@@ -131,13 +134,15 @@ async fn follow_redirect_chain(
         // 收每跳的 Set-Cookie。
         for c in resp.cookies() {
             let domain = c.domain().unwrap_or("").to_string();
-            let key = (c.name().to_string(), domain.clone());
+            let path = c.path().unwrap_or("").to_string();
+            let key = (c.name().to_string(), domain.clone(), path.clone());
             collected.insert(
                 key,
                 Cookie {
                     name: c.name().to_string(),
                     value: c.value().to_string(),
                     domain: Some(domain),
+                    path: if path.is_empty() { None } else { Some(path) },
                     expires: c.expires().map(|st| {
                         let dur = st.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
                         chrono::DateTime::<chrono::Utc>::from_timestamp(dur.as_secs() as i64, 0)

@@ -52,7 +52,10 @@ sjtu-cli/
 │   ├── lib.rs                       # 模块 re-export；VERSION 常量
 │   ├── cli.rs                       # clap 命令枚举 + 派发
 │   ├── config.rs                    # ~/.sjtu-cli/ 路径管理
-│   ├── cookies.rs                   # Cookie TTL / 加载 / 保存
+│   ├── cookies/                     # Cookie 模型 + 文件 I/O（S2 瑕疵修复时拆分）
+│   │   ├── mod.rs                   # Cookie / Session struct + redacted 三元组键
+│   │   ├── io.rs                   # load / save / clear（主 + 子 session）
+│   │   └── tests.rs                 # redacted + path 防覆盖单测
 │   ├── error.rs                     # thiserror 统一异常
 │   ├── output.rs                    # Envelope + TTY 检测 + YAML/JSON/Table 切换
 │   ├── auth/                        # 登录模块
@@ -92,7 +95,7 @@ sjtu-cli/
 ```
 
 ### 当前阶段
-- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转（实测教务 SP 首次 19s → 缓存命中 6ms）
+- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转（实测教务 SP 首次 19s → 缓存命中 6ms）/ S1+S2 瑕疵补丁（cookie 唯一键升级为 RFC 6265 §5.3 的 (name, domain, path) 三元组）
 - **下一步**：S3 — 教务（MVP 核心：课表 / 成绩 / GPA）
 - **详细进度**：见 `tasks/todo.md`
 - **经验总结**：见 `tasks/lessons.md`

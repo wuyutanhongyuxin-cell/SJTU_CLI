@@ -63,6 +63,11 @@ fn cookie_from_rookie(c: &rookie::enums::Cookie) -> Cookie {
         name: c.name.clone(),
         value: c.value.clone(),
         domain: Some(c.domain.clone()),
+        path: if c.path.is_empty() {
+            None
+        } else {
+            Some(c.path.clone())
+        },
         expires: expires_to_datetime(c.expires),
     }
 }

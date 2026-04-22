@@ -110,3 +110,39 @@ async fn follow_chain_rejects_invalid_target_url() {
     let res = follow_redirect_chain(&bare_client(), "not://a valid url").await;
     assert!(res.is_err());
 }
+
+/// RFC 6265 §5.3：同 name 同 domain 不同 path 是两条独立 cookie，
+/// 三元组 key 必须把它们分开存储，不能被 HashMap 覆盖成一条。
+#[tokio::test]
+async fn follow_chain_keeps_same_name_different_paths() {
+    let mut server = mockito::Server::new_async().await;
+    // mockito 的 with_header 在底层是 append，多次调用同一 header 会累加，
+    // 真实模拟上游同时 Set-Cookie 两次（Path=/ 与 Path=/xtgl）的场景。
+    let _m = server
+        .mock("GET", "/multi")
+        .with_status(200)
+        .with_header("set-cookie", "JSESSIONID=root; Path=/")
+        .with_header("set-cookie", "JSESSIONID=xtgl; Path=/xtgl")
+        .with_body("ok")
+        .create_async()
+        .await;
+
+    let target = format!("{}/multi", server.url());
+    let (cookies, _) = follow_redirect_chain(&bare_client(), &target)
+        .await
+        .unwrap();
+
+    let paths: std::collections::HashSet<_> = cookies
+        .values()
+        .filter(|c| c.name == "JSESSIONID")
+        .map(|c| c.path.clone().unwrap_or_default())
+        .collect();
+    assert!(
+        paths.contains("/"),
+        "应保留 Path=/ 的 cookie，实际：{paths:?}"
+    );
+    assert!(
+        paths.contains("/xtgl"),
+        "应保留 Path=/xtgl 的 cookie，实际：{paths:?}"
+    );
+}

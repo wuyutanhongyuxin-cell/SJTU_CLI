@@ -74,4 +74,22 @@
 
 ---
 
+## 2026-04-22 — Cookie 唯一键必须是 (name, domain, path) 三元组
+
+**触发情境**：S2 收尾后想给 `Session::redacted()` 加一个"同名不同域复合键"去重，用户说"联网交叉验证无误后严格准确地执行"；WebFetch 查 RFC 6265 才发现我准备的 `(name, domain)` 二元组依然不够严格。
+
+**错误模式**：想当然以为 "name + domain" 就能唯一标识 cookie。S2 的 `follow_redirect_chain` 和 `redacted()` 都是这套思路。
+
+**正确做法**：RFC 6265 §5.3 明确 cookie 唯一键是 **(name, domain, path) 三元组**——同名同域但不同 path 是两条独立 cookie。`cookies::Cookie` struct 要有 `path: Option<String>`；所有跨 cookie 的集合去重都要用三元组；脱敏 key 格式 `name@domain,path`。reqwest `Cookie::path() -> Option<&str>`、headless_chrome CDP `path: String`、rookie `path: String` 都能填出这个字段。
+
+**规则**：任何 cookie 集合（HashMap / HashSet / BTreeMap）的 key：
+- ✅ `(name, domain, path)` 三元组，缺省值保留 `""` 参与区分
+- ✅ 序列化/展示时 `name@domain,path`，空用 `-`
+- ❌ 不用 `name` 或 `(name, domain)` —— 后者只修了 50%
+- ❌ 不省 path 字段。即使当前子系统只出现一条同名 cookie，改版时翻车难追
+
+另：触发"严格"+"正确性"关键字时，**联网交叉验证是一级工序，不是可选项**。这次不是验证出来就是按错的实现落盘了。
+
+---
+
 <!-- 新的经验追加到此处上方，最新在上 -->

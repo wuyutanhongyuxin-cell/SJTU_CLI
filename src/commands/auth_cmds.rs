@@ -71,11 +71,7 @@ pub fn cmd_status(fmt: Option<OutputFormat>) -> Result<()> {
                 is_expired: session.is_expired(),
                 captured_at: session.captured_at,
                 soft_expires_at: session.soft_expires_at,
-                cookies: session
-                    .redacted()
-                    .into_iter()
-                    .map(|(k, v)| (k.to_string(), v))
-                    .collect(),
+                cookies: session.redacted(),
             };
             render(Envelope::ok(data), fmt)
         }
@@ -122,12 +118,7 @@ pub async fn cmd_test_cas(url: String, name: String, fmt: Option<OutputFormat>) 
         from_cache: result.from_cache,
         elapsed_ms: result.elapsed_ms,
         cookie_count: result.session.cookies.len(),
-        cookies: result
-            .session
-            .redacted()
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect(),
+        cookies: result.session.redacted(),
     };
     render(Envelope::ok(data), fmt)
 }
