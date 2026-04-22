@@ -1,0 +1,17 @@
+# SJTU-CLI 用户配置示例。
+# 复制为 ~/.sjtu-cli/config.toml 后按需修改。
+
+[academic]
+# 本学期开学日期（用于计算"第几教学周"）
+semester_start = "2026-02-24"
+# 学期名
+semester_name = "2025-2026-2"
+
+[output]
+# 默认输出格式：auto / yaml / json / table
+# auto 时：TTY → table，非 TTY → yaml
+default_format = "auto"
+
+[canvas]
+# Canvas Base URL
+base_url = "https://oc.sjtu.edu.cn"

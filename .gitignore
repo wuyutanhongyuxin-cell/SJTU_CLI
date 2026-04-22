@@ -1,0 +1,20 @@
+# Rust 构建产物
+/target
+**/*.rs.bk
+
+# Cargo.lock 对二进制项目要提交（可复现构建），此处保留。
+# 将来若本仓库变为纯 library，再取消下行注释。
+# Cargo.lock
+
+# 运行时敏感状态（严禁提交）
+session.json
+sub_sessions/
+.env
+*.log
+
+# 编辑器 / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

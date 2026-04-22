@@ -1,0 +1,39 @@
+[package]
+name = "sjtu-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "SJTU JAccount 命令行工具：扫码登录后一行命令查课表 / 成绩 / 一卡通 / 通知 / Canvas"
+license = "MIT"
+readme = "README.md"
+keywords = ["sjtu", "jaccount", "cli", "student"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "sjtu"
+path = "src/main.rs"
+
+[lib]
+name = "sjtu_cli"
+path = "src/lib.rs"
+
+[dependencies]
+# --- S0 基础设施 ---
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
+directories = "5"
+is-terminal = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+thiserror = "2"
+
+# --- S1 扫码登录 ---
+headless_chrome = "1"
+qrcode = "0.14"
+image = { version = "0.25", default-features = false, features = ["png"] }
+rqrr = "0.7"
+rookie = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
