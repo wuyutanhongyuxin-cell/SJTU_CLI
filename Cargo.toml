@@ -37,3 +37,12 @@ rqrr = "0.7"
 rookie = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# --- S2 CAS 子系统跳转 ---
+reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls", "gzip"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+url = "2"
+
+[dev-dependencies]
+mockito = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

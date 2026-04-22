@@ -58,8 +58,12 @@ sjtu-cli/
 │   ├── auth/                        # 登录模块
 │   │   ├── mod.rs
 │   │   ├── qr_login.rs              # ★ headless_chrome QR 扫码
+│   │   ├── qr_render.rs             # 终端 ANSI QR 重绘
 │   │   ├── browser_extract.rs       # rookie cookie 兜底
-│   │   └── cas.rs                   # 子系统 CAS 跳转
+│   │   └── cas/                     # 子系统 CAS 跳转（S2 拆分）
+│   │       ├── mod.rs               # cas_login + follow_redirect_chain
+│   │       ├── client.rs            # 注入主 session 构造 reqwest Client
+│   │       └── tests.rs             # mockito 跳转链单测
 │   ├── apps/                        # 每个子系统一个文件
 │   │   ├── mod.rs
 │   │   ├── jwc.rs                   # 教务（课表/成绩）
@@ -88,8 +92,8 @@ sjtu-cli/
 ```
 
 ### 当前阶段
-- **已完成**：S0 骨架 / S1 QR 扫码登录（实战验证抓到 JAAuthCookie）
-- **下一步**：S2 — CAS 子系统跳转
+- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转（实测教务 SP 首次 19s → 缓存命中 6ms）
+- **下一步**：S3 — 教务（MVP 核心：课表 / 成绩 / GPA）
 - **详细进度**：见 `tasks/todo.md`
 - **经验总结**：见 `tasks/lessons.md`
 

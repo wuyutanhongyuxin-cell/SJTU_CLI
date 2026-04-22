@@ -1,4 +1,4 @@
-//! `sjtu login` / `sjtu logout` / `sjtu status` 三个子命令的实现。
+//! `sjtu login` / `sjtu logout` / `sjtu status` / `sjtu test-cas` 四个子命令的实现。
 
 use std::collections::HashMap;
 
@@ -6,7 +6,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::auth::{self, Backend};
+use crate::auth::{self, cas, Backend};
 use crate::cookies::{clear_session, load_session};
 use crate::error::SjtuCliError;
 use crate::output::{render, Envelope, OutputFormat};
@@ -98,4 +98,36 @@ fn redact(v: &str) -> String {
     } else {
         format!("{}***", &v[..8])
     }
+}
+
+/// `sjtu test-cas <url> --name <n>` 的 data：调试用，给 S2 checkpoint 看缓存命中。
+#[derive(Debug, Serialize)]
+struct TestCasData {
+    name: String,
+    target_url: String,
+    final_url: String,
+    from_cache: bool,
+    elapsed_ms: u128,
+    cookie_count: usize,
+    cookies: HashMap<String, String>,
+}
+
+/// `sjtu test-cas`：跑一次 CAS 通用通道，打印耗时与缓存命中。
+pub async fn cmd_test_cas(url: String, name: String, fmt: Option<OutputFormat>) -> Result<()> {
+    let result = cas::cas_login(&name, &url).await?;
+    let data = TestCasData {
+        name,
+        target_url: url,
+        final_url: result.final_url,
+        from_cache: result.from_cache,
+        elapsed_ms: result.elapsed_ms,
+        cookie_count: result.session.cookies.len(),
+        cookies: result
+            .session
+            .redacted()
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    };
+    render(Envelope::ok(data), fmt)
 }

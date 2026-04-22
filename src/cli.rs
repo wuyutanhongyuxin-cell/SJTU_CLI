@@ -47,6 +47,17 @@ enum Commands {
 
     /// 查看本地 session 状态（是否登录 / TTL / 脱敏 cookie 摘要）。
     Status,
+
+    /// 内部调试：用主 session 走 CAS 拿子系统 cookie，打印耗时和缓存命中。
+    /// S3 引入正式子系统命令后会移除。
+    #[command(hide = true)]
+    TestCas {
+        /// 子系统 SP 入口 URL（如 `https://i.sjtu.edu.cn/xtgl/index_initMenu.html`）。
+        url: String,
+        /// 子系统名（用作缓存文件名，如 `jwc`）。
+        #[arg(long, default_value = "debug")]
+        name: String,
+    },
 }
 
 /// 供 clap 解析的 `--browser` 枚举。只为了 derive `ValueEnum`。
@@ -66,7 +77,10 @@ impl From<BackendArg> for auth::Backend {
 }
 
 /// 程序入口：解析参数 → 派发到具体子命令。
-pub fn run() -> Result<()> {
+///
+/// S2 起改 async：`cas` 路径需要 await reqwest；其余子命令仍是同步实现，
+/// 在 async 上下文里直接调用即可（不阻塞 reactor，因为是 fs / 子进程类同步 IO）。
+pub async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     let fmt = if cli.yaml {
@@ -82,6 +96,7 @@ pub fn run() -> Result<()> {
         Commands::Login { browser } => auth_cmds::cmd_login(browser.into(), fmt),
         Commands::Logout => auth_cmds::cmd_logout(fmt),
         Commands::Status => auth_cmds::cmd_status(fmt),
+        Commands::TestCas { url, name } => auth_cmds::cmd_test_cas(url, name, fmt).await,
     }
 }
 

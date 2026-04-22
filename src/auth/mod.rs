@@ -1,6 +1,7 @@
 //! 登录模块：S1 阶段的扫码登录主链路 + rookie 兜底。
 
 pub mod browser_extract;
+pub mod cas;
 pub mod qr_login;
 pub mod qr_render;
 

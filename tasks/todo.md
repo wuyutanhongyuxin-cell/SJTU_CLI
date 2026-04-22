@@ -77,19 +77,30 @@
 
 ---
 
-## ⚪ S2 — CAS 子系统跳转
+## ✅ S2 — CAS 子系统跳转（已完成 2026-04-22）
 
-预估 1 天。目标：通用函数 `cas_login(target_url)` 能给任意子系统拿 session。
+预估 1 天。目标：通用函数 `cas_login(name, target_url)` 能给任意子系统拿 session。
 
-- [ ] 创建 `src/auth/cas.rs`
-- [ ] 实现 `async fn cas_login(client: &Client, target_url: &str) -> Result<CookieJar>`：
-  - [ ] 用 `JAAuthCookie` 访问 target_url
-  - [ ] reqwest cookie store 自动跟随 CAS 302 跳转
-  - [ ] 取最终 `Set-Cookie`
-  - [ ] 缓存到 `~/.sjtu-cli/sub_sessions/<name>.json`
-- [ ] 在 `cookies.rs` 加 `load_sub_session(name)` / `save_sub_session(name, cookies)`
-- [ ] 单测：用 mockito mock 302 跳转链，验证 cookie 提取
-- [ ] **Checkpoint：打印"首次访问教务 N ms，第二次命中缓存 M ms"**
+- [x] 加依赖：`reqwest` 0.12（cookies/json/rustls-tls/gzip）+ `tokio` 1（rt-multi-thread/macros）+ `url` 2；dev：`mockito` 1
+- [x] `src/main.rs` 改 `#[tokio::main(flavor = "multi_thread", worker_threads = 2)]`；`cli::run` 改 `async`
+- [x] `src/cookies.rs` 加 `sub_session_path` / `load_sub_session` / `save_sub_session` / `clear_sub_session`；含路径注入防御（禁 `.` / `/` / `\` / 空格）
+- [x] 创建 `src/auth/cas/`（拆 3 文件以守住 200 行硬限）：
+  - [x] `mod.rs`（194 行）：`cas_login` 主入口 + `follow_redirect_chain` 手动跟 302 链 + `is_redirect` / `is_jaccount_host` helpers
+  - [x] `client.rs`（50 行）：`build_client` 注入主 session 所有 SJTU 域 cookie（含 JAAuthCookie）→ `reqwest::Client` with `redirect::Policy::none()`
+  - [x] `tests.rs`（108 行）：mockito 模拟 3 跳 redirect 链验 cookie 累加；模拟 redirect loop 验 10 跳超限报错；非法 URL 测试
+- [x] `src/cli.rs` + `src/commands/auth_cmds.rs`：加 `sjtu test-cas <url> --name <n>`（`#[command(hide = true)]`，S3 接入教务后删）
+- [x] **实现要点**：手动跟 302 而非 reqwest 默认 follow —— 才能逐跳收 `Set-Cookie`，且落点停在 jaccount 域时立即报 `SubSystemUnreachable`（识别 JAAuthCookie 过期 / 需交互授权）
+- [x] 自动验证：build / clippy `-D warnings` / fmt --check / `cargo test`（8 passed = 原 3 + sub_session 路径防御 + 3 mockito + redirect 分类 + jaccount host 判断）
+- [x] **Checkpoint 实测**（真实 SJTU 教务 SP `i.sjtu.edu.cn/xtgl/index_initMenu.html`）：
+  - 首次 CAS 跳转：`from_cache=false, elapsed_ms=19420, cookie_count=2`（JSESSIONID + keepalive）
+  - 第二次同命令：`from_cache=true, elapsed_ms=6`（缓存命中，3200× 加速）
+  - sub_session 文件：`%APPDATA%\sjtu-cli\sub_sessions\jwc.json`
+
+**S2 留白：**
+- 真实 SJTU 教务的 CAS 落点 URL 是 `login_slogin.html`（而非想象的 `index_initMenu.html`）—— 已在 sub_session 里，S3 jwc 模块用时要按这个落点继续。归属 S3 的调研工作，不在 S2 范围
+- `test-cas` 隐藏调试子命令，S3 引入正式 `sjtu schedule` / `sjtu grades` 后删
+- 未测：最终 URL 停在 jaccount 域时的报错路径（需要制造 JAAuthCookie 过期场景；可手动 `sjtu logout` 后试）
+- `Cargo.toml` 多加了一个 `[dev-dependencies] tokio = "1" { ..., "test-util" }` —— 和生产 tokio 同 crate 不同 features；cargo 会 union，实际生产也会带上 test-util（无害但略肿 30KB），S6 做 tests 优化时可清理
 
 ---
 
@@ -186,3 +197,4 @@
 | 2026-04-22 | S0 | 骨架完成：Cargo.toml + 7 个 src/*.rs + 配置样例；build / clippy / fmt 全绿；`sjtu hello` YAML/JSON/管道全链路验证通过 | Table→YAML 占位、Windows ACL、tracing、tests/ 均留到后续阶段 |
 | 2026-04-22 | S1 代码 | 加 7 个 dep；新增 auth/{mod,qr_login,qr_render,browser_extract} + commands/{mod,auth_cmds}；改 cli/lib/main；build / clippy `-D warnings` / fmt / `cargo test`（2 passed）全绿；`sjtu --help` / `status` / `logout` 输出符合预期 | 真实 `sjtu login` 扫码链路待人工验证；终端 QR 在小尺寸时可能扫不动；rookie 兜底依赖本机浏览器已登过 JAccount |
 | 2026-04-22 | S1 验收 | 实战修两个 bug：入口 URL 应为 my.sjtu（CAS 自动跳 JAccount QR 页），`tab.get_cookies()` 只看当前域 → 改用 CDP `Network.getAllCookies` 跨域抓；扫码成功抓到 7 条 SJTU cookie 含 `JAAuthCookie`；status 读取链路 OK | 终端 QR 实测扫不动（fallback 浏览器窗口）；status 展示因 HashMap-by-name 去重少列 2 条同名不同域 cookie（仅展示瑕疵） |
+| 2026-04-22 | S2 | 加 reqwest/tokio/mockito 依赖；main 改 `#[tokio::main]`；cookies 加 sub_session 三件套（带路径注入防御）；拆 `src/auth/cas/{mod,client,tests}.rs` 3 文件（主文件控 200 行内）；手动跟 302 链 + 逐跳 set-cookie + jaccount 落点检查；加 hidden `test-cas` 调试命令；clippy/fmt/test 8 passed 全绿 | test-cas 首 19420ms → 命中缓存 6ms（3200× 加速）；落点 URL 为教务 `login_slogin.html` 需 S3 消化；rookie 兜底仍未人工验；tokio dev 特性与 prod union 到 30KB 膨胀 |
