@@ -32,6 +32,27 @@
 
 ---
 
+## 2026-04-23 — mockito + reqwest 测试必须 `.no_proxy()`
+
+**触发情境**：S3a 写完水源 OAuth2 链后跑 `cargo test`，auth/cas 和 auth/oauth2 两套 mockito 跟链测试同时 6 个挂：`Expected 1 request(s)... but received 0`、部分返 503、redirect-loop 测试本应报错却返 Ok。
+
+**错误模式**：以为 `reqwest::Client::builder()` 什么都不配就是"干净 client"。实际它默认走 `Proxy::system()`，会读本机 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。本机装了 Clash/V2ray 代理（`http://127.0.0.1:10808`），于是：
+- mockito 起在 `127.0.0.1:random_port`
+- reqwest 把请求先发给 `127.0.0.1:10808` 代理
+- 代理把请求当成"要走上游"，要么超时、要么错路由、要么返 503
+- mockito 永远收不到请求，`expect(1)` 断言挂
+
+**正确做法**：`Client::builder()` 链上加 `.no_proxy()` 强制不读环境变量。只针对单测的 `bare_client()` 加，生产 client 不改（生产走代理是合法需求）。
+
+**规则**：任何 `mockito::Server` + `reqwest::Client` 的测试：
+- ✅ 测试用 `Client::builder().no_proxy()`
+- ✅ 短 timeout（5 秒够了）防止代理劫持后长挂
+- ✅ 注释里写明"为什么加 no_proxy"，提醒后来人别去掉
+- ❌ 不要依赖 CI 环境无代理—本地开发机多半装了代理
+- ❌ 不要为此去改 HTTP_PROXY 环境变量（副作用太大）
+
+---
+
 ## 2026-04-22 — headless_chrome 抓 cookie 必须跨域
 
 **触发情境**：S1 扫码登录链路里，用户扫码完跳到 `my.sjtu.edu.cn/ui/app/`，我用 `tab.get_cookies()` 想抓 `JAAuthCookie`，结果空。

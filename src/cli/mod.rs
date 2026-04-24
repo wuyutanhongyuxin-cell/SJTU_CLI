@@ -1,8 +1,15 @@
 //! clap 命令行入口：定义顶层 `Cli` 与 `Commands` 枚举，并派发到各子命令。
+//!
+//! Shuiyuan 相关的 clap 枚举 + 派发拆在 `shuiyuan.rs` 里，本文件只保留顶层骨架。
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+
+mod canvas;
+mod jwbmessage;
+mod shuiyuan;
+mod shuiyuan_args;
 
 use crate::auth;
 use crate::commands::auth_cmds;
@@ -48,15 +55,22 @@ enum Commands {
     /// 查看本地 session 状态（是否登录 / TTL / 脱敏 cookie 摘要）。
     Status,
 
-    /// 内部调试：用主 session 走 CAS 拿子系统 cookie，打印耗时和缓存命中。
-    /// S3 引入正式子系统命令后会移除。
-    #[command(hide = true)]
-    TestCas {
-        /// 子系统 SP 入口 URL（如 `https://i.sjtu.edu.cn/xtgl/index_initMenu.html`）。
-        url: String,
-        /// 子系统名（用作缓存文件名，如 `jwc`）。
-        #[arg(long, default_value = "debug")]
-        name: String,
+    /// 水源社区（shuiyuan.sjtu.edu.cn）：只读论坛命令。写操作留给后续子阶段、默认 `--confirm`。
+    Shuiyuan {
+        #[command(subcommand)]
+        sub: shuiyuan::ShuiyuanSub,
+    },
+
+    /// 交我办消息中心（my.sjtu.edu.cn）：分组列表 / 组内消息 / 全部已读。
+    Messages {
+        #[command(subcommand)]
+        sub: jwbmessage::MessagesSub,
+    },
+
+    /// Canvas LMS（oc.sjtu.edu.cn）：PAT 鉴权的只读作业 DDL 查询。
+    Canvas {
+        #[command(subcommand)]
+        sub: canvas::CanvasSub,
     },
 }
 
@@ -96,7 +110,9 @@ pub async fn run() -> Result<()> {
         Commands::Login { browser } => auth_cmds::cmd_login(browser.into(), fmt),
         Commands::Logout => auth_cmds::cmd_logout(fmt),
         Commands::Status => auth_cmds::cmd_status(fmt),
-        Commands::TestCas { url, name } => auth_cmds::cmd_test_cas(url, name, fmt).await,
+        Commands::Shuiyuan { sub } => shuiyuan::dispatch(sub, fmt).await,
+        Commands::Messages { sub } => jwbmessage::dispatch(sub, fmt).await,
+        Commands::Canvas { sub } => canvas::dispatch(sub, fmt).await,
     }
 }
 
@@ -114,8 +130,8 @@ fn cmd_hello(fmt: Option<OutputFormat>) -> Result<()> {
     let data = HelloData {
         project: "sjtu-cli",
         version: crate::VERSION,
-        stage: "S1 — QR 扫码登录",
-        message: "登录已就绪：`sjtu login` 扫码 → `sjtu status` 查 session。",
+        stage: "S3a — 水源社区只读命令（代码落盘，真实 checkpoint 待跑）",
+        message: "登录已就绪：`sjtu login` 扫码 → `sjtu status` 查 session → `sjtu shuiyuan --help` 看水源只读命令。",
     };
     render(Envelope::ok(data), fmt)
 }

@@ -1,6 +1,6 @@
 //! cas 单元测试：纯函数 + mockito 模拟跳转链。
 //!
-//! 不验真实 SJTU；那部分靠 `sjtu test-cas <url>` 手工 checkpoint。
+//! 不验真实 SJTU；真实子系统的 CAS 跳转在各自 app 的集成验证里跑（见 S3c/S3d/S3e 的 checkpoint）。
 
 use std::sync::Arc;
 
@@ -32,10 +32,15 @@ fn detect_redirect_status() {
 }
 
 /// 给跟链测试用：构造手动 redirect 的 client，jar 不预填任何 cookie。
+///
+/// `no_proxy()` 是必须的：reqwest 默认继承 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量，
+/// 本机装了 Clash/V2ray 类代理时，mockito 的 127.0.0.1 请求会被劫持到代理里，
+/// mock 永远收不到请求，断言就会挂。
 fn bare_client() -> Client {
     Client::builder()
         .cookie_provider(Arc::new(Jar::default()))
         .redirect(Policy::none())
+        .no_proxy()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .unwrap()

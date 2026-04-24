@@ -29,6 +29,24 @@ pub enum SjtuCliError {
     /// 网络层错误。
     #[error("网络错误：{0}")]
     NetworkError(String),
+
+    /// OAuth2 跟链失败：主 session 有效但无法在水源落到 `_t`。
+    /// 典型触发：停在 jaccount 授权确认页 / 登录页、state 校验失败、callback 无法换 code。
+    #[error("OAuth2 登录失败：{0}")]
+    OAuth2Failed(String),
+
+    /// 水源 Discourse API 非 2xx 或响应解析失败（保留原始 snippet 便于定位 API 漂移）。
+    #[error("水源 API 错误：{0}")]
+    ShuiyuanApi(String),
+
+    /// Canvas LMS API 非 2xx 或响应解析失败。
+    #[error("Canvas API 错误：{0}")]
+    CanvasApi(String),
+
+    /// Canvas PAT 无效或已被 revoke（401）。Envelope code 仍归到 `session_expired`，
+    /// 但行动项是 `sjtu canvas setup` 而非 `sjtu login`。
+    #[error("Canvas PAT 无效或已过期。请重新运行 `sjtu canvas setup` 生成新 token。")]
+    CanvasTokenInvalid,
 }
 
 impl SjtuCliError {
@@ -41,6 +59,10 @@ impl SjtuCliError {
             Self::UpstreamError(_) => "upstream_error",
             Self::InvalidInput(_) => "invalid_input",
             Self::NetworkError(_) => "network_error",
+            Self::OAuth2Failed(_) => "oauth2_failed",
+            Self::ShuiyuanApi(_) => "shuiyuan_api",
+            Self::CanvasApi(_) => "canvas_api",
+            Self::CanvasTokenInvalid => "session_expired",
         }
     }
 }
