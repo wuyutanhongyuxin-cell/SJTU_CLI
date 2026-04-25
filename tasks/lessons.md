@@ -15,6 +15,26 @@
 
 ---
 
+## 2026-04-25 — release binary 过时，调试前先核 freshness
+
+**触发情境**：跑 `sjtu shuiyuan login-probe` 报 `error sending request`，连续 30+ 分钟在网络层（HTTPS_PROXY env / TLS / Clash 端口）打转。先怀疑 reqwest 默认代理行为，又写 `examples/proxy_diag.rs` 三组 builder 对照，全部白干。最终 `stat target/release/sjtu.exe` + `find src -name "*.rs" -newer target/release/sjtu.exe` 才看出 binary 是 2026-04-23 16:55 编的旧版，比 `apps/shuiyuan/http.rs` 当前源码（含 `pool_idle_timeout(0)` 修复）旧 2 天 —— `cargo build --release --bin sjtu` 重编后立刻通，CP-1..6 + CP-M1/M2 8/8 一气过完。
+
+**错误模式**：把"运行行为异常"直接等同"代码 / 网络栈有问题"，跳过"binary 是否对应当前代码"这一步直接深挖；多次重跑得到一致错误就更确信"代码有问题"，没去验 binary 时间戳。
+
+**正确做法**：sjtu CLI 跑时行为和源码 / 注释明显不一致 → 第一步：
+- `stat target/release/sjtu.exe` 看 mtime
+- `find src -name "*.rs" -newer target/release/sjtu.exe` 看是否有更新源
+- 任一命中 → 立即 `cargo build --release --bin <name>` 重编再继续诊断
+
+**规则**：调试 sjtu CLI（或任何 cargo release binary）运行时异常 / 行为不符合源码描述：
+- ✅ Step 0 = `find src -newer <binary>` 验 binary 是否过时
+- ✅ 任何"注释里写了 X、行为表现不像 X"的情况，第一假设永远是 binary 旧
+- ✅ rebuild 比写 minimal repro / 加 RUST_LOG=trace 都便宜得多
+- ❌ 不要直接跳到 reqwest/hyper trace 日志或新建 examples 复现
+- ❌ 不要假设"binary 还是上次编的那份" —— 中间有 edit / commit / git pull，就可能旧
+
+---
+
 ## 2026-04-22 — 有明确参考时不扩展调研
 
 **触发情境**：用户让我规划 SJTU-CLI 并已指明"仿照 xiaohongshu-cli 的 QR 扫码登录方式"。

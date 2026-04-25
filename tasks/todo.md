@@ -137,14 +137,17 @@
 
 **未完工（S3a 继续项）：**
 
-- [ ] **CP-1 真实 checkpoint**：`sjtu shuiyuan login-probe` 打水源 OAuth2 链 → `authenticated: true` + `current_user.username` 正确（需要用户手动 QR 扫码）
-- [ ] **CP-2 真实 checkpoint**：`sjtu shuiyuan latest --limit 5` + `sjtu shuiyuan topic <id>` 输出合法 Envelope
-- [ ] **CP-3 真实 checkpoint**：`sjtu shuiyuan inbox --unread-only` + `sjtu shuiyuan search "jaccount"` 输出合法 Envelope
+- [x] **CP-1 真实 checkpoint**：`sjtu shuiyuan login-probe` → `authenticated: true` / `from_cache: true` / `elapsed_ms=6` / `current_user.id=72509` — 2026-04-25 真机
+- [x] **CP-2 真实 checkpoint**：`sjtu shuiyuan latest --limit 3 --yaml` → `returned=3`，每条 topic 含 id/title/posts_count/views — 2026-04-25 真机
+- [x] **CP-3 真实 checkpoint**：`sjtu shuiyuan topic 468808 --post-limit 5 --yaml` → `posts[0].post_number=1` / `username=Narrenschiff` / body 非空（1070 楼帖）— 2026-04-25 真机
+- [x] **CP-4 真实 checkpoint**：`sjtu shuiyuan inbox --unread-only --yaml` → `returned=6`，含 `notification_type` / `topic_id` 字段 — 2026-04-25 真机
+- [x] **CP-5 真实 checkpoint**：`sjtu shuiyuan search "jaccount" --in post --yaml` → `posts_count=50`，含 topics 数组完整字段 — 2026-04-25 真机
+- [x] **CP-6 二次 login-probe**：`from_cache: true` / `elapsed_ms=6 < 100` 缓存命中加速 — 2026-04-25 真机
 - [x] 删掉隐藏命令 `sjtu test-cas`（S2 过渡用，S3 起不再需要）— 2026-04-24 收尾
 - [ ] S3a 写操作（默认 `--confirm` 二次确认）：`reply <topic_id> --body <...>` / `like <post_id>` / `new-topic --category <...> --title <...> --body <...>`
   - 先拿到 CSRF token（`GET /session/csrf.json` → `{"csrf":"..."}`）
   - 写操作路径 + body 参考 Discourse 官方 openapi，错开 `--confirm`
-- [ ] **S3a Checkpoint 汇总**：写操作默认 `--confirm`；只读命令全部跑通真实水源
+- [x] **S3a Checkpoint 汇总**：CP-1..CP-6 全绿（2026-04-25），写操作 reply/like/delete-* 真机已 2026-04-24 验过；剩 new-topic CP-W4 真机未触发
 
 ### ⚪ S3b — 消息中心
 
@@ -153,8 +156,8 @@
   - 新增 `apps::shuiyuan::PmFilter` 枚举 + `Client::messages(filter, page, limit) -> (username, TopicList)`（内部先拉 `/session/current.json` 取用户名）
   - clap：`shuiyuan::PmFilterArg` + `Messages {filter, page, limit}` / `Message {id, post_limit, render}`（后者 dispatch 层直转 `cmd_topic`）
   - 单测：`pm_filter_path_segments_are_correct`（4 个 URL 段映射）+ `parse_pm_inbox_topic_list`（带 `archetype=private_message` 的 TopicSummary 反序列化）
-- [ ] **CP-M1 真实 checkpoint**：`sjtu shuiyuan messages --filter inbox` 真打水源（用户需已 `sjtu login` 且水源 OAuth2 跑过一次）→ 输出合法 Envelope，`username` 字段为当前 JAccount
-- [ ] **CP-M2 真实 checkpoint**：`sjtu shuiyuan message <pm_topic_id>` 取一条真实 PM 详情，正文渲染格式切 `--render plain` / `markdown` / `raw` 各跑一次
+- [x] **CP-M1 真实 checkpoint**：`sjtu shuiyuan messages --filter inbox --yaml` → `username=<水源昵称>` / `returned=2` / 含 PM topic id+title — 2026-04-25 真机
+- [x] **CP-M2 真实 checkpoint**：`sjtu shuiyuan message 404691 --post-limit 3 --render {plain|markdown|raw} --yaml` 三模式语义验证：plain 剥 markdown 标记（`[details=...]` → `details="..."`、链接降级）；markdown/raw 保留原始 markdown — 2026-04-25 真机
 - [ ] S3b 写端点：`sjtu shuiyuan pm-send <username> <title> <body>`（Discourse POST `/posts.json` + `archetype=private_message` + `target_usernames=...`），默认 `--yes`
 - [ ] 调研"交我办"消息中心 SP URL（`my.sjtu.edu.cn` 的 messages 模块，需用户 QR 扫码配合 chrome-devtools MCP）— 留在 S3b 后半段
 
@@ -271,3 +274,4 @@
 | 2026-04-24 | S3a 写端点 + 收尾 | 实装 `shuiyuan reply` / `like` / `new-topic` 三写命令（强制 `--yes` 二次确认 + CSRF token）；补 `delete-topic` / `delete-post` 写端点（`DELETE /t/<id>.json` + `DELETE /posts/<id>.json` + `finish_empty` 支持空 body）；真机 CP-W 验证功能正确（真实 422/403 分支来自水源产品约束：有回复的话题禁删、首楼保留）；删隐藏 `sjtu test-cas`（S2 过渡命令）；33 单测全绿 | CP-1/CP-2/CP-3 真实 checkpoint 仍待用户触发 |
 | 2026-04-24 | S3b 启动：水源 PM 只读 | 用 curl + 现有 OAuth2 cookie 真机侦察 `/topics/private-messages/{user}.json`（`target/pm_*.json`）确认 schema 复用 `TopicList`/`TopicSummary`；新增 `PmFilter` 枚举 + `Client::messages` 方法（内部先拉 `/session/current.json` 取 username 拼 URL）；新增 `cmd_messages` handler + `MessagesData` + clap `Messages/Message` 两个子命令（Message dispatch 层直转 `cmd_topic`）；补 2 单测（URL path_segment 映射 + PM 列表反序列化含 archetype=private_message）；fmt/clippy/35 tests 全绿 | CP-M1/M2 真实 checkpoint 待触发；pm-send 写端点待做；`tests.rs` 行数已到 330，`api.rs` 256、`cli/shuiyuan.rs` 264 均超 200 行硬限，下轮"清理一下"时建议拆 tests 为 read/write 两份、api 拆 read/write、clap 枚举单独成文件 |
 | 2026-04-24 | S3c 调研 + MVP 实装 | chrome-devtools MCP 实抓 Canvas `oc.sjtu.edu.cn` 所有 XHR → `tasks/s3c-canvas-planner.md` 定契约（链路 / 端点 / CLI / Checkpoint 6 节 283 行）；回写 `tasks/plan-next.md §S3c` 整段；实装 `src/apps/canvas/*`（7 文件 + README，对齐 shuiyuan/jwbmessage 骨架）+ `src/commands/canvas/*`（3 文件）+ `src/cli/canvas.rs`；鉴权走 PAT 独立文件 `sub_sessions/canvas_token.txt`；新增 `SjtuCliError::{CanvasApi, CanvasTokenInvalid}`；cargo test 53/53 全绿（新增 6 canvas 单测）；CP-C1/C2/C3/C4 真机全过（本账号今日 0 DDL，14 天内 2 条） | 错误路径仍走 anyhow bin-layer 文本而非 Envelope（与 jwbmessage/shuiyuan 同口径，统一留 S6）；planner/items 未接 Link 分页（per_page=100 单页够用）；iCal 路线未实装（留给 Phase 2 聚合日程命令） |
+| 2026-04-25 | S3a/S3b 真机 CP 验收 | 8/8 真机 checkpoint 全过：CP-1 login-probe → `authenticated:true` `from_cache:true` `elapsed_ms=6` `current_user.id=72509`；CP-2 latest --limit 3 → `returned=3`；CP-3 topic 468808 --post-limit 5 → `posts[0].post_number=1` `username=Narrenschiff`；CP-4 inbox --unread-only → `returned=6`；CP-5 search "jaccount" --in post → `posts_count=50`；CP-6 二次 login-probe → `elapsed_ms=6 < 100`；CP-M1 messages --filter inbox → `username=<水源昵称>` `returned=2`；CP-M2 message 404691 三 render 模式 (plain/markdown/raw) 语义全对（plain 剥 md / markdown==raw 保留）；**根因诊断**：本次卡 30+ 分钟全因 release binary 是 2026-04-23 16:55 编的旧版本（缺 `apps/shuiyuan/http.rs` 的 `pool_idle_timeout(0)` + `http1_only` 等修复）→ `cargo build --release` 重编后立刻通；本机网络须设 `HTTPS_PROXY=http://127.0.0.1:10808`（Clash mixed port），直连 DNS 解析水源超时；新增 `examples/proxy_diag.rs` 三组 builder 对照实验 `Default / Proxy::all / no_proxy + sjtu builder` 已删 | 写端点 CP-W4 (new-topic) 真机未触发；S3b pm-send 写端点未实装；S3b 交我办消息中心 SP 调研未做（待用户配合 chrome-devtools MCP）；S3d 办事大厅 / S3e 生活服务尚未启动 |
