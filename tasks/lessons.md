@@ -43,9 +43,64 @@
 - ❌ 不要在归档 / 日志 / 提交里留任何真实学号 / 姓名 / 成绩值；规格表只写字段定义和接口形态
 
 **当前代码状态**：
-- ✅ N305005 学生成绩查询规格已抓（端点 / form / response / 字段筛选）落 `tasks/isjtu_investigation.md` §2.1
-- ⏳ N2151 个人课表 / N309131 GPA / N358105 考试 / 其余 SP 待半自动抓
+- ✅ 9 SP 规格已全部归档 `tasks/isjtu_investigation.md` §2.1–§2.9（成绩 / 课表 / GPA / 考试 / 成绩明细 / 修业情况 / 周课表 / 培养计划 / 毕业设计）
 - ⏳ `apps::jwc/` CLI 实现未起；起手时第一件事是抽 `JwcPage<T>` + ZF 共用 client（headers / cookie / referer 模板）
+
+---
+
+## 2026-04-26 — ZF 教务 9 SP 调研挖出的 API 形态坑（实装速查）
+
+**触发情境**：调研完 i.sjtu 9 SP 后准备开 `apps::jwc/` MVP。9 个端点里有 6 个不是"标准单 POST 拿 items"模式，提前不归档下次实装时很容易按 N305005 范式硬套结果 4xx / 数据空 / 全校扫描。
+
+**坑位速查（按 SP 排序，全部已落 `tasks/isjtu_investigation.md` §2.x，本表仅作 grep 入口）**：
+
+| SP / 功能 | 偏离点 | 不知道会出的事 |
+|---|---|---|
+| **N309131 GPA**（§2.3）| **两阶段调用**：先 `POST tjGpapmtj` 触发统计（返字符串 `"统计成功！"`，不是 JSON 对象），再 `POST cxGpaxjfcxIndex?doType=query` 拿数据 | 直接打第二个端点拿到的是上一次/空统计；第一阶段 response 用 `serde_json::Value` 接，不要预期 envelope |
+| **N358105 考试**（§2.4）| 主键 button id = `btn_search`，触发 url 含 `?su=<学号>` query | 点 `search_go` 拿不到东西；form body 里没学号字段，全在 URL |
+| **N305007 成绩明细**（§2.5）| **Master-detail**：`cxXsKcList` 主表 + `cxXsKccjList` 详表，`jxb_id` 串联；详表 item 有 `xmblmc="平时(50%)"`+`xmcj` | 单打主表只有总成绩，没有平时/期中/期末分项；要做 N+1 查询或前端合并展示 |
+| **N551225 修业情况**（§2.6）| **1+N pattern**：`xsxyqk_ckXsXyxxHtmlView` overview + `xsxyqk_ckDynamicGridData` × 20 详表，`xfyqjd_id` 串联；overview items 含 `level2/level3/level4` HTML 串和 `zgshzt`(Y/N) | 1 次拿不全；overview 里 level2/3/4 是 ZF 拼好的展示 HTML，不是结构化数据 |
+| **N551225 修业情况**（§2.6）| **`xh_id` 在 URL，不在 form**——独此一家 | form 里塞 xh_id 会被 ZF 忽略，端点用当前 session 默认值；URL 里漏了会 4xx |
+| **N153521 培养计划**（§2.8）| **默认返 412 行全校所有专业**；CLI 必须 form 带 `zyh_id` + `njdm_id` 过滤 | 不过滤直接落库会扫全校；item 里有 `xsdm_0X`（X 为动态数字），字段名按学年学期变 |
+| **N532560 毕业设计**（§2.9）| 当前用户非毕设阶段时 items 空；页面顶部 "当前毕业设计学年学期:2018-2019" 是**stale display** | 误判端点挂；CLI 区分"空 items + 200" 与"4xx" 两态 |
+| **N2154 周课表**（§2.7）| `oldzc` = **16-bit 周次位掩码**（bit i = 第 i+1 周有课），`oldjc` = 节次位掩码；`rqazcList[]` 给 weekday→真实日期 map | 解析 `zcd` "1-16周"/`jc` "3-4节" 字符串既不准也累，bitmask 一行 `(oldzc >> (week-1)) & 1` 搞定 |
+| **N2151 / N2154 学期编码**（§2.2 §2.7）| `xqm` 编码：**3=第1学期 / 12=第2学期 / 16=第3学期**（反直觉） | 当成 1/2/3 传 ZF 会返空 items 不报错 |
+
+**通用形态约束（重申，所有 SP 共享）**：
+- ZF 序列化全是 String —— `xf` / `jd` / `totalCount` 全部 String，CLI 自己 deserialize
+- `cj` 字段是 String 但内容混合："P" / "W" / 字母等级 / 数字字符串 —— **永远不要 force parse to f64**
+- 标准分页 envelope `{currentPage, pageNo, pageSize, totalCount, totalPage, totalResult, items}` 抽 `JwcPage<T>` 一次写；非分页接口（GPA/overview）用 `Vec<Value>` 或专属 struct
+- 两阶段端点的"触发 phase" response 经常是裸字符串（`"统计成功！"`、`"true"`），用 `Value` 兜底，别用 struct
+
+**错误模式**（实装时最容易犯的）：
+1. 把 N305005 的 form-only POST 范式套到 N309131（漏一阶段）/ N551225（漏 xh_id-in-URL）/ N358105（漏 ?su= query）
+2. N153521 不带过滤上线，第一次调用就把 412 行全校数据回到日志/缓存里（隐私事故）
+3. 课表展示从 `zcd`/`jc` 字符串解析周次节次（脆 + 慢），忘记 `oldzc/oldjc` 位掩码现成
+4. `xqm` 用直觉值 1/2/3，调试半天看不出为什么 items 空
+5. `cj` 当 f64 反序列化，遇到 "P"/字母直接 panic / 默认 0.0
+
+**正确做法**：
+1. 实装每个 SP 前先看 `isjtu_investigation.md` §2.x 的 form / URL / response 例子，**严格按调研期抓的形态**写，不要外推
+2. CLI 抽 `JwcPage<T>` 只服务"标准分页"那批；GPA / overview 这种异形端点写专属 struct，不要硬塞分页 envelope
+3. `oldzc/oldjc` 位掩码解析写一个 util，所有课表 SP 共用
+4. `xqm` 编码写常量 `XQM_AUTUMN=3 / XQM_SPRING=12 / XQM_SUMMER=16` + doc comment 解释为啥不是 1/2/3
+5. `cj` 字段 type = `String`，展示层再决定是否尝试 parse；模型层 `Cj(String)` 包一层防 force-parse
+6. N153521 端点 CLI 强制要求 `--major <zyh_id>`（或从 session 推断），无 zyh_id 不让跑
+
+**规则**（按"实装时一行 grep"标准写）：
+- ✅ ZF 异形端点表见此 lesson 表格；新 SP 实装前先对照
+- ✅ `JwcPage<T>` 只用于"items 数组在分页 envelope 里"那批；异形端点别套
+- ✅ ZF String-only 序列化 → 模型层全部 `String`，业务层再 typed
+- ✅ `cj` / `bfzcj` / `xf` / `jd` 模型字段一律 `String`；不在 deserialize 期试图 parse
+- ✅ `xqm` 用常量，**永不**直接传 1/2/3
+- ✅ `oldzc/oldjc` 解析走位掩码 util，**永不**parse `zcd`/`jc` 字符串
+- ❌ 不要把任意 ZF SP 假设为"单 POST 拿 items"——5/9 的 SP 都不是
+- ❌ 不要把 N305005 的 form 字段名集合照搬到其他 SP；每个 SP 字段不同（N551225 是 xh_id-in-URL，N358105 是 ?su=，N309131 是两阶段）
+- ❌ 不要在 N153521 实装上线前漏掉 zyh_id 过滤——一次误用 = 412 行全校落日志
+
+**当前代码状态**：
+- ✅ 9 SP 规格全归档 `tasks/isjtu_investigation.md`
+- ⏳ `apps::jwc/` 未起；起手第一件事是 `JwcPage<T>` + ZF client + 4 个核心 SP（N305005 / N2151 / N309131 / N358105）handler
 
 ---
 
