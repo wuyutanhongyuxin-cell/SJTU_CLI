@@ -12,7 +12,9 @@ use crate::apps::shuiyuan::Client;
 use crate::output::{render, Envelope, OutputFormat};
 use crate::util::confirm::confirm;
 
-use super::data::{DeletePostData, DeleteTopicData, LikeData, NewTopicData, PmSendData, ReplyData};
+use super::data::{
+    ArchivePmData, DeletePostData, DeleteTopicData, LikeData, NewTopicData, PmSendData, ReplyData,
+};
 
 /// `sjtu shuiyuan reply <topic_id> <body> [--yes]`。
 pub async fn cmd_reply(
@@ -90,6 +92,10 @@ pub async fn cmd_pm_send(
 }
 
 /// `sjtu shuiyuan delete-topic <topic_id> [--yes]`：删除整条 topic（**不可恢复**）。
+///
+/// PM 预检：水源对 PM 的 `DELETE /t/<id>.json` 是 silent no-op（返 200 但不真删）。
+/// 这里 confirm 通过后先 GET 一次拿 archetype，是 PM 就直接报错指向 archive-pm，
+/// 避免给用户"假删除成功"的回包（lesson: 2026-04-26 水源 PM 删除语义魔改）。
 pub async fn cmd_delete_topic(
     topic_id: u64,
     assume_yes: bool,
@@ -100,11 +106,38 @@ pub async fn cmd_delete_topic(
         assume_yes,
     )?;
     let client = Client::connect().await?;
+    let detail = client.topic(topic_id, 1).await?;
+    if detail.archetype.as_deref() == Some("private_message") {
+        anyhow::bail!(
+            "topic {topic_id} 是私信（archetype=private_message），不能用 delete-topic（水源会 silent no-op）。请改用 `sjtu shuiyuan archive-pm {topic_id}`"
+        );
+    }
     client.delete_topic(topic_id).await?;
     render(
         Envelope::ok(DeleteTopicData {
             topic_id,
             deleted: true,
+        }),
+        fmt,
+    )
+}
+
+/// `sjtu shuiyuan archive-pm <topic_id> [--yes]`：把 PM 归档到 archive 视图（从 sent/inbox 移走）。
+pub async fn cmd_archive_pm(
+    topic_id: u64,
+    assume_yes: bool,
+    fmt: Option<OutputFormat>,
+) -> Result<()> {
+    confirm(
+        &format!("归档私信 topic {topic_id}（从 sent/inbox 移走，进 archive 视图，仍可在 archive 里找回）"),
+        assume_yes,
+    )?;
+    let client = Client::connect().await?;
+    client.archive_pm(topic_id).await?;
+    render(
+        Envelope::ok(ArchivePmData {
+            topic_id,
+            archived: true,
         }),
         fmt,
     )

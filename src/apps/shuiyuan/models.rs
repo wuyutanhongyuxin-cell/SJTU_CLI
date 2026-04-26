@@ -75,6 +75,10 @@ pub struct TopicDetail {
     pub like_count: u32,
     #[serde(default)]
     pub tags: Vec<serde_json::Value>,
+    /// Discourse topic 类型：普通帖 = `regular`，私信 = `private_message`。
+    /// 用于 `delete-topic` 预检：PM 走 `archive-message` 而不是 destroy（DELETE 对 PM 静默 no-op）。
+    #[serde(default)]
+    pub archetype: Option<String>,
     /// 发帖流：`post_stream.posts` 是楼层数组。
     #[serde(default)]
     pub post_stream: PostStream,

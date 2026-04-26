@@ -37,6 +37,13 @@
 - ❌ 不要假设水源 == 标准 Discourse 的 API 形状，水源是 fork 已经多次魔改（field name / cookie / route）
 - ❌ 不要拿 `finish_empty()` 给 PM destroy 这种"server 返 200 但实际无效"的端点背书
 
+**当前代码状态（2026-04-26 当晚补丁）**：
+- ✅ `apps::shuiyuan::api_write::archive_pm` 已上：PUT `/t/<id>/archive-message.json` + CSRF + `finish_empty`
+- ✅ `commands::shuiyuan::cmd_delete_topic` confirm 通过后先 `client.topic(id, 1)` 取 `archetype`，是 `private_message` 时 `anyhow::bail!` 指向 archive-pm，PM 路径不再 silent 假成功
+- ✅ `models::TopicDetail` 加 `archetype: Option<String>` 字段以支持上述预检
+- ✅ CLI 新命令：`sjtu shuiyuan archive-pm <topic_id> [--yes]`
+- ✅ 真机 CP-PM2 + CP-DT-PM 双绿（topic 469498 走 archive-pm 让 sent returned 1→0；topic 469500 跑 delete-topic → 友好错指向 archive-pm，不进 silent no-op）
+
 ---
 
 ## 2026-04-25 — release binary 过时，调试前先核 freshness

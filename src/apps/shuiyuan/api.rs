@@ -117,9 +117,14 @@ impl Client {
         api_write::like(&self.http, &self.throttle, BASE, post_id).await
     }
 
-    /// DELETE /t/{id}.json — 删整条 topic（不可恢复）。
+    /// DELETE /t/{id}.json — 删整条 topic（不可恢复）。注意 PM 不能用此端点，请用 `archive_pm`。
     pub async fn delete_topic(&self, topic_id: u64) -> Result<()> {
         api_write::delete_topic(&self.http, &self.throttle, BASE, topic_id).await
+    }
+
+    /// PUT /t/{id}/archive-message.json — 把 PM 归档（从 sent/inbox 移走，进 archive 视图）。
+    pub async fn archive_pm(&self, topic_id: u64) -> Result<()> {
+        api_write::archive_pm(&self.http, &self.throttle, BASE, topic_id).await
     }
 
     /// DELETE /posts/{id}.json — 删单楼。首楼请走 `delete_topic`。

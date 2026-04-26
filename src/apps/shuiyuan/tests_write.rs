@@ -202,6 +202,60 @@ async fn pm_send_posts_archetype_private_message_with_target() {
 }
 
 #[tokio::test]
+async fn archive_pm_puts_with_csrf_to_archive_message_endpoint() {
+    let mut server = mockito::Server::new_async().await;
+    let csrf_mock = server
+        .mock("GET", "/session/csrf.json")
+        .with_status(200)
+        .with_body(r#"{"csrf":"arc-tok"}"#)
+        .create_async()
+        .await;
+    // 断言：PUT /t/<id>/archive-message.json 必须带 X-CSRF-Token=arc-tok。
+    // 水源真机实测 body 为空 / `{}`，这里返空 body 验 finish_empty 不会因 JSON 解析挂掉。
+    let put_mock = server
+        .mock("PUT", "/t/468916/archive-message.json")
+        .match_header("x-csrf-token", "arc-tok")
+        .with_status(200)
+        .with_body("")
+        .create_async()
+        .await;
+
+    let http = bare_client();
+    let throttle = Throttle::new();
+    api_write::archive_pm(&http, &throttle, &server.url(), 468916)
+        .await
+        .expect("PUT /t/<id>/archive-message.json 空 body 也要算成功");
+    csrf_mock.assert_async().await;
+    put_mock.assert_async().await;
+}
+
+#[tokio::test]
+async fn archive_pm_4xx_surfaces_snippet_error() {
+    let mut server = mockito::Server::new_async().await;
+    let _csrf = server
+        .mock("GET", "/session/csrf.json")
+        .with_status(200)
+        .with_body(r#"{"csrf":"x"}"#)
+        .create_async()
+        .await;
+    let _bad = server
+        .mock("PUT", "/t/1/archive-message.json")
+        .with_status(404)
+        .with_body(r#"{"errors":["topic not found"]}"#)
+        .create_async()
+        .await;
+
+    let http = bare_client();
+    let throttle = Throttle::new();
+    let err = api_write::archive_pm(&http, &throttle, &server.url(), 1)
+        .await
+        .expect_err("404 应报错");
+    let msg = format!("{err:#}");
+    assert!(msg.contains("status=404"), "msg={msg}");
+    assert!(msg.contains("topic not found"), "msg={msg}");
+}
+
+#[tokio::test]
 async fn pm_send_4xx_surfaces_snippet_error() {
     let mut server = mockito::Server::new_async().await;
     let _csrf = server

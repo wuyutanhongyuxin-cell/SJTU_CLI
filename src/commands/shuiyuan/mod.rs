@@ -16,7 +16,8 @@ pub use handlers_read::{
     cmd_inbox, cmd_latest, cmd_login_probe, cmd_messages, cmd_search, cmd_topic,
 };
 pub use handlers_write::{
-    cmd_delete_post, cmd_delete_topic, cmd_like, cmd_new_topic, cmd_pm_send, cmd_reply,
+    cmd_archive_pm, cmd_delete_post, cmd_delete_topic, cmd_like, cmd_new_topic, cmd_pm_send,
+    cmd_reply,
 };
 
 use crate::apps::shuiyuan::{PmFilter, SearchScope};

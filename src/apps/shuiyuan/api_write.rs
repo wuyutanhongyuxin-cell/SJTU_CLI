@@ -124,6 +124,33 @@ pub(super) async fn delete_topic(
     finish_empty(resp, "/t/<id>.json DELETE").await
 }
 
+/// PUT /t/{topic_id}/archive-message.json — 把 PM 移入 archive 视图（从 inbox/sent 消失，仍可在 archive 找回）。
+///
+/// 水源 + 标准 Discourse 都对 PM 的 `DELETE /t/<id>.json` **静默 no-op**：返 200 + `deleted: true` 但 PM 仍在。
+/// 真机 CP-PM1（2026-04-26）实证：DELETE 后 GET /t/<id>.json 仍 200 完整内容；改 PUT archive-message 后才从 sent 视图消失（returned=0）。
+/// 详见 tasks/lessons.md "水源 PM 字段名 + 删除语义都魔改"。
+pub(super) async fn archive_pm(
+    http: &HttpClient,
+    throttle: &Throttle,
+    base: &str,
+    topic_id: u64,
+) -> Result<()> {
+    let csrf = csrf_token(http, throttle, base).await?;
+    throttle.wait().await;
+    let url = format!("{base}/t/{topic_id}/archive-message.json");
+    let resp = http
+        .put(&url)
+        .header(ACCEPT, "application/json")
+        .header(USER_AGENT, UA)
+        .header(REFERER, base)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("X-CSRF-Token", &csrf)
+        .send()
+        .await
+        .map_err(|e| SjtuCliError::NetworkError(format!("PUT {url}: {e}")))?;
+    finish_empty(resp, "/t/<id>/archive-message.json PUT").await
+}
+
 /// DELETE /posts/{post_id}.json — 删单楼（首楼 post 会被水源拒绝；请用 `delete_topic`）。
 pub(super) async fn delete_post(
     http: &HttpClient,

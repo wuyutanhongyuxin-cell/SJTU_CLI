@@ -121,6 +121,13 @@ pub(super) struct DeleteTopicData {
     pub deleted: bool,
 }
 
+/// `archive-pm` 命令的 data 形状。
+#[derive(Debug, Serialize)]
+pub(super) struct ArchivePmData {
+    pub topic_id: u64,
+    pub archived: bool,
+}
+
 /// `delete-post` 命令的 data 形状。
 #[derive(Debug, Serialize)]
 pub(super) struct DeletePostData {

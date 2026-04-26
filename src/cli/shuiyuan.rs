@@ -58,14 +58,11 @@ pub enum ShuiyuanSub {
         limit: u32,
     },
 
-    /// 看单条私信详情。本质上复用 `/t/<id>.json`，所以直接转 `topic` handler。
+    /// 看单条私信详情（PM 也是 topic，复用 `/t/<id>.json` → 直转 `topic` handler）。
     Message {
-        /// 私信 topic id（PM 也是 topic 的一种，URL 里的数字）。
         id: u64,
-        /// 返回楼层数上限。
         #[arg(long, default_value_t = 20)]
         post_limit: u32,
-        /// 正文渲染格式。
         #[arg(long, value_enum, default_value_t = RenderModeArg::Markdown)]
         render: RenderModeArg,
     },
@@ -90,50 +87,48 @@ pub enum ShuiyuanSub {
         yes: bool,
     },
 
-    /// 点赞指定楼层（写操作）。
+    /// 点赞指定楼层（post_id 是楼层 id，不是 topic id）。
     Like {
-        /// 被赞的 post id（不是 topic id，是具体楼层的 id）。
         post_id: u64,
         #[arg(long)]
         yes: bool,
     },
 
-    /// 发新帖（写操作）。`--category` 可选，不传走水源默认分类。
+    /// 发新帖。`--category` 不传走水源默认分类。
     NewTopic {
-        /// 帖子标题。
         title: String,
-        /// 正文（Markdown）。
         body: String,
-        /// 目标分类 id。
         #[arg(long)]
         category: Option<u64>,
         #[arg(long)]
         yes: bool,
     },
 
-    /// 发私信给指定用户（写操作）。新开 PM 会话，不是在已有会话里回复。
+    /// 发私信给指定用户（新开 PM 会话；`to` 是水源 username 不带 @）。
     PmSend {
-        /// 收件人用户名（水源 username，不带 @）。
         to: String,
-        /// 私信标题。
         title: String,
-        /// 正文（Markdown）。
         body: String,
         #[arg(long)]
         yes: bool,
     },
 
-    /// 删除整条 topic（写操作，**不可恢复**）。首楼删除等同删除整条帖子。
+    /// 删除整条 topic（**不可恢复**）。PM 用 `archive-pm` —— 这里会预检 archetype 拦住 PM。
     DeleteTopic {
-        /// 要删除的 topic id。
         topic_id: u64,
         #[arg(long)]
         yes: bool,
     },
 
-    /// 删除指定楼层（写操作）。首楼请用 `delete-topic`。
+    /// 归档私信（PUT `/t/<id>/archive-message.json`，从 sent/inbox 移走，可在 archive 找回）。
+    ArchivePm {
+        topic_id: u64,
+        #[arg(long)]
+        yes: bool,
+    },
+
+    /// 删除指定楼层。首楼请用 `delete-topic`。
     DeletePost {
-        /// 要删除的 post id（具体楼层的 id，不是 topic id）。
         post_id: u64,
         #[arg(long)]
         yes: bool,
@@ -189,6 +184,9 @@ pub async fn dispatch(sub: ShuiyuanSub, fmt: Option<OutputFormat>) -> Result<()>
         } => shuiyuan_cmds::cmd_pm_send(to, title, body, yes, fmt).await,
         ShuiyuanSub::DeleteTopic { topic_id, yes } => {
             shuiyuan_cmds::cmd_delete_topic(topic_id, yes, fmt).await
+        }
+        ShuiyuanSub::ArchivePm { topic_id, yes } => {
+            shuiyuan_cmds::cmd_archive_pm(topic_id, yes, fmt).await
         }
         ShuiyuanSub::DeletePost { post_id, yes } => {
             shuiyuan_cmds::cmd_delete_post(post_id, yes, fmt).await
