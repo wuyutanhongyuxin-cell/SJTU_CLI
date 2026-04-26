@@ -173,15 +173,15 @@ async fn pm_send_posts_archetype_private_message_with_target() {
         .with_body(r#"{"csrf":"pm-tok"}"#)
         .create_async()
         .await;
-    // 断言 PM 关键 form 字段：archetype=private_message + target_usernames=<user> + title/raw。
-    // username 带中文触发 urlencoding，target_usernames 也要按百分号编码进 body。
+    // 断言 PM 关键 form 字段：archetype=private_message + target_recipients=<user> + title/raw。
+    // 水源魔改：字段名是 target_recipients，不是标准 Discourse 的 target_usernames。
     let post_mock = server
         .mock("POST", "/posts.json")
         .match_header("x-csrf-token", "pm-tok")
         .match_header("content-type", "application/x-www-form-urlencoded")
         .match_body(mockito::Matcher::AllOf(vec![
             mockito::Matcher::Regex("archetype=private_message".into()),
-            mockito::Matcher::Regex("target_usernames=alice".into()),
+            mockito::Matcher::Regex("target_recipients=alice".into()),
             mockito::Matcher::Regex("title=hi".into()),
             mockito::Matcher::Regex("raw=body".into()),
         ]))

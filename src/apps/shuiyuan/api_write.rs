@@ -49,8 +49,12 @@ pub(super) async fn new_topic(
 
 /// POST /posts.json + archetype=private_message — 向指定用户发私信（新开 PM 会话）。
 ///
-/// Discourse 约定：PM 是个 archetype=private_message 的 topic。只支持单收件人；
-/// Discourse 官方允许 `target_usernames` 逗号分隔多人，目前 CLI 侧按单人收敛。
+/// Discourse 约定：PM 是个 archetype=private_message 的 topic。
+/// 水源魔改：收件人字段名是 `target_recipients`（标准 Discourse 用 `target_usernames`，
+/// 在水源会被路由到一个 422 "您必须选择一个有效的用户。" 的死路径）。
+/// 真机 CP-PM1（2026-04-26）实证：`target_usernames=百合师傅` → 422；
+/// `target_recipients=百合师傅` → 200 创建成功。详见 tasks/lessons.md。
+/// 字段值仍接受逗号分隔多人，目前 CLI 侧按单人收敛。
 pub(super) async fn pm_send(
     http: &HttpClient,
     throttle: &Throttle,
@@ -61,7 +65,7 @@ pub(super) async fn pm_send(
 ) -> Result<PostCreated> {
     let csrf = csrf_token(http, throttle, base).await?;
     let body = format!(
-        "raw={}&title={}&archetype=private_message&target_usernames={}",
+        "raw={}&title={}&archetype=private_message&target_recipients={}",
         urlencoding(raw),
         urlencoding(title),
         urlencoding(username),
