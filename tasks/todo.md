@@ -193,6 +193,35 @@
 - [ ] `sjtu card balance` / `sjtu elec balance --dorm <...>`
 - [ ] 金额字段用 `rust_decimal::Decimal`，绝不用 f64
 
+### 🟡 S3f — i.sjtu 教务系统（jwc / ZF 正方）
+
+> **2026-04-26 起激活**：S5"教务"原计划 Phase 2 延后，现因用户主导调研 i.sjtu.edu.cn 而前置。i.sjtu = ZFSOFT 正方教务（**不是**交我办聚合门户；交我办在 my.sjtu.edu.cn）。
+>
+> 详细规格 + 字段表 + 调研 SOP 见 `tasks/isjtu_investigation.md`；通用范式 + 红线 + 半自动协作模式见 `tasks/lessons.md` 2026-04-26 第一条 entry + CLAUDE.md "i.sjtu / 交我办 硬红线"。
+
+**红线（CLAUDE.md 已落）**：信息维护 / 选课写菜单 / 教学评价 / 报名申请 / 任何 form submit 全禁；只做信息查询类只读 SP。
+
+**半自动 chrome-devtools 调研（每个 SP 一发，由用户点查询按钮，CLI 抓 network）**
+
+- [x] **N305005 学生成绩查询** — 单阶段 POST + 标准 envelope + 总评字段 `cj/bfzcj/jd/xfjd` — 2026-04-26 §2.1
+- [x] **N2151 个人课表查询** — 自动加载 `cxXsgrkb`，专属 envelope（kbList + xqjmcMap），课表渲染 `xqj/jc/zcd` — §2.2
+- [x] **N309131 GPA / 学积分查询** — **两阶段**（先 `tjGpapmtj` 算→返 `"统计成功！"`，再 `cxGpaxjfcxIndex` 拉），item 含 GPA/排名/学积分/通过率 — §2.3
+- [x] **N358105 考试信息查询** — 单阶段，item 含 `kssj` 复合时间 + `cdmc` 考场 + `jsxx` 监考 — §2.4
+- [x] **N305007 学生成绩明细查询** — master-detail（`cxXsKcList` + `cxXsKccjList`，jxb_id join），detail 含 `xmblmc` 项目 + `xmcj` 项目分 — §2.5
+- [x] **N551225 学生修业情况查询** — 1+N 调用（`xsxyqk_ckXsXyxxHtmlView` overview 三级模块 + `xsxyqk_ckDynamicGridData` 各模块课程，`xfyqjd_id` join），`xh_id` 在 URL — §2.6
+- [x] **N2154 学生课表查询（按周次）** — `xskbcxMobile_cxXsKb`，`zs=<周次>` + `rqazcList[]` 当周日期映射；`oldzc` = **16-bit 周次掩码**、`oldjc` = 节次掩码（CLI 用 mask 比 parse 字符串干净）— §2.7
+- [x] **N153521 培养计划课程查询（含 N153540）** — 默认全校 412 条，CLI **必填 `zyh_id`** 过滤本专业；`xsxxxx`/`xsdm_0X` 含动态字段 — §2.8
+- [x] **N532560 毕业设计成绩查看** — 端点 + envelope 已验，items 空（用户未到毕设阶段，正常） — §2.9
+
+**实装（调研收口后开工）**
+
+- [ ] `src/apps/jwc/{mod,client,page,api_grades,api_schedule,api_gpa,api_exams,...,models,tests_parse}.rs`，沿用 ZF 通用 `JwcPage<T>` envelope + 共享 client（headers / cookie / referer 模板）
+- [ ] `src/commands/jwc/{mod,grades,schedule,gpa,exams,...}.rs`
+- [ ] `src/cli/jwc.rs` 子命令枚举（`sjtu jwc grades [--year] [--term] [--scope]` / `jwc schedule today|week` / `jwc gpa` / `jwc exams` ...）
+- [ ] **CP-J1 真机**：`sjtu jwc grades --yaml` 跑通 N305005，输出脱敏（学号 / 姓名只在 `--with-identity` 标志下打全）
+- [ ] CP-J2..CP-Jn 按 SP 逐个 checkpoint
+- [ ] `tests/jwc_*.rs` mockito 端单测（不打真水源）
+
 ---
 
 ## ⚪ S4 — 一卡通消费明细（从原 S4 降级为 S3e 拓展或 Phase 2）

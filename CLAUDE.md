@@ -102,6 +102,12 @@ sjtu-cli/
 
 ### 项目专属约束
 - **合规第一**：只做读操作；不做抢课 / 代登录 / 批量爬他人
+- **i.sjtu / 交我办 硬红线（无论 CLI 实现期 还是 MCP 浏览器调研期）**：
+  - 严禁触动用户个人信息（"信息维护"全部子项 / 头像 / 联系方式 / 地址 / 密码 / 银行卡 等）
+  - 严禁触动选课内容（"选课" 主菜单全部子项 / 加退课 / 退选 / 选课志愿 / 抢课 等）
+  - 严禁提交任何表单 / 点击任何"提交 / 确认 / 保存 / 绑定 / 修改 / 删除 / 退订 / 申请 / 撤回"按钮
+  - 调研期 chrome-devtools 仅允许：take_snapshot / take_screenshot / list_network_requests / get_network_request / evaluate_script（且 evaluate 的 JS 必须是只读，不调任何 form.submit() / fetch POST/PUT/DELETE）
+  - 即便用户已扫码登录、session 在握，也按"我是只读访客"操作，不替用户决策任何状态变更
 - **用户隐私**：`~/.sjtu-cli/` 权限 600（Unix）/ 仅当前用户可读（Windows ACL 可留 TODO）；日志脱敏学号姓名
 - **Cookie 安全**：不提交任何真实 cookie；`.gitignore` 必须含 `session.json`、`sub_sessions/`
 - **金额**：一卡通消费金额必须用 `rust_decimal::Decimal`，绝不用 f32/f64

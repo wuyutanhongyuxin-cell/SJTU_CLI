@@ -15,6 +15,40 @@
 
 ---
 
+## 2026-04-26 — i.sjtu = ZF 教务系统 + 半自动 chrome-devtools 调研范式
+
+**触发情境**：用户说"i.sjtu.edu.cn 完整严格详细准确实现"，我下意识把 i.sjtu 当"交我办"聚合门户去规划 SP 跳板调研（C 选项）。chrome-devtools `take_snapshot` 一抓页面 title="教学管理信息服务平台"，nav 全是教务向（报名/选课/成绩/课表/评价），**根本不是聚合门户**——i.sjtu 是 ZFSOFT 正方教务系统的 SJTU 实例（server header `ZFSOFT.Inc + Tomcat 7.0.94 + Java 1.8`）。聚合门户其实是 my.sjtu.edu.cn。继续抓 N305005 学生成绩查询：页面 GET 返 HTML 含 form，"查询"按钮 POST `cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005`，form 含 `xnm/xqm/queryModel.showCount/queryModel.currentPage/time` 等字段，response 是统一分页 envelope `{currentPage, totalCount, totalResult, items:[...]}`，每条 item 50+ 字段含大量内部冗余（`queryModel` 嵌套自己一份、`date/dateDigit` 响应时间、`xh_id` 256-hex token、`userModel` 空对象等）。用户红线：选课/信息维护/教学评价/报名申请/任何 form submit 全禁；用户偏好"我抓只读、你点查询/写"半自动模式。
+
+**错误模式**：
+1. 没先 take_snapshot 确认 i.sjtu 实际身份就开始规划聚合门户调研 —— 下意识按"i.sjtu 听起来像 portal"假设走
+2. 把 ZF 系统的 GET-via-POST 模式与"chrome-devtools 任何 click 都是写"混为一谈，没意识到「查询」按钮虽然物理 POST 但语义只读
+3. 看到 response 50+ 字段直接想全暴露给 CLI —— 实际 ZF 把内部字典/分页 envelope/render hint 全塞回来了，CLI 模型只该取 ~15 个核心业务字段
+
+**正确做法**：
+1. SJTU 任何子域调研第一步 `take_snapshot` 确认 title / 顶部 nav 实际定位，再决定调研策略；URL 名 ≠ 系统身份
+2. ZF 系统调研 SOP：navigate_page 到 SP 页 → 抓 form 结构 → **请用户点查询按钮** → list_network_requests 抓 `doType=query` POST → get_network_request 拿 form body + response shape → 归档进 `tasks/isjtu_investigation.md`
+3. 字段筛选：`item` 里只挑业务字段（学年/学期/课程/学分/成绩/教师等）+ ZF 内部 ID 仅作为 join key 内部用、`queryModel`/`userModel`/日期冗余/`localeKey`/`row_id` 全丢；`xh_id` 256-hex 不是真学号是签名 token，**不要落日志**
+
+**规则**：
+- ✅ i.sjtu = ZF 教务（不是交我办聚合门户）；交我办 = my.sjtu；CLI 实现规划在 `apps::jwc/`
+- ✅ ZF 全 SP 走 `https://i.sjtu.edu.cn<path>?gnmkdm=<gnmkdm>&layout=default` 模板，数据接口走 `<page>?doType=query&gnmkdm=<gnmkdm>`，POST + form-urlencoded
+- ✅ 所有 ZF 数据响应都是 `{currentPage, pageNo, pageSize, totalCount, totalPage, totalResult, items}` 分页 envelope；CLI 抽一个 `JwcPage<T>` 统一 deserialize
+- ✅ ZF 必带 headers：`X-Requested-With: XMLHttpRequest` + `Accept: application/json, text/javascript, */*; q=0.01` + `Origin/Referer/UA`；缺 X-Requested-With 会被路由到 HTML 兜底
+- ✅ ZF cookie：`JSESSIONID`（HttpOnly）+ `keepalive`（响应自动刷）；reqwest cookie store 自动接住
+- ✅ ZF csrf：在 page HTML `<input type=hidden name=csrftoken>`，**不在 cookie**；写操作再去 parse，读操作不需要
+- ✅ chrome-devtools 调研 i.sjtu / 交我办时严守半自动：snapshot/network/只读 evaluate 我做，任何 click / submit 用户做（feedback_isjtu_semiauto.md）
+- ❌ 不要把聚合门户的 SP-jump 假设套到 i.sjtu —— i.sjtu 是单系统、有自己的 nav，不需要 jaccount-jump 逐 SP 兑 cookie
+- ❌ 不要 force parse `cj`/`bfzcj` 成数字；考核类课程会给"通过"/字母等级
+- ❌ 不要把 `totalResult`/`xf` 当 int —— ZF 序列化全是字符串，要么 String 要么自定义 deserialize
+- ❌ 不要在归档 / 日志 / 提交里留任何真实学号 / 姓名 / 成绩值；规格表只写字段定义和接口形态
+
+**当前代码状态**：
+- ✅ N305005 学生成绩查询规格已抓（端点 / form / response / 字段筛选）落 `tasks/isjtu_investigation.md` §2.1
+- ⏳ N2151 个人课表 / N309131 GPA / N358105 考试 / 其余 SP 待半自动抓
+- ⏳ `apps::jwc/` CLI 实现未起；起手时第一件事是抽 `JwcPage<T>` + ZF 共用 client（headers / cookie / referer 模板）
+
+---
+
 ## 2026-04-26 — 水源 self-delete top-level topic 站点级禁用 + 测试帖 raw 必须伪装
 
 **触发情境**：CP-W4 真机：`sjtu shuiyuan new-topic "[CP-W4] sjtu-cli 自动化测试 请忽略" "本帖由 sjtu-cli new-topic 自动化测试 (CP-W4) 发布..."` → 200 返 `topic_id=469507 / post_id=8805252 / cooked` 三件套。立即 `sjtu shuiyuan delete-topic 469507 --yes` → **422 "删除该话题时出错。请与网站管理员联系。"**；改 `delete-post 8805252` → **403 "您没有权限查看请求的资源。"**（首楼保留）；75s 后重试 delete-topic 仍 422，排除 per-minute 限流。让用户 web 上手工删 → 弹窗"**您无权删除此话题。如果您确实希望将其删除，请提交举报并说明原因，以便引起版主注意**" —— 是水源 site-wide 配置硬约束，与 trust level / per-day 配额无关。同时观察到水源对未带 `--category` 的 topic 自动重分类到"水源广场 谈笑风生"，并由 `shuiyuan-bot` 用户自动跟一帖："请勿选择未分类，也请不要随意发在聊聊水源..."。最终用户在 web 上手工编辑标题/首楼把 raw 改成中性"加油喵～/加油做最好的自己"无害化收尾，CLI 没有 edit-post 端点没法自动做。
