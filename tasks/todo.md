@@ -215,12 +215,14 @@
 
 **实装（调研收口后开工）**
 
-- [ ] `src/apps/jwc/{mod,client,page,api_grades,api_schedule,api_gpa,api_exams,...,models,tests_parse}.rs`，沿用 ZF 通用 `JwcPage<T>` envelope + 共享 client（headers / cookie / referer 模板）
-- [ ] `src/commands/jwc/{mod,grades,schedule,gpa,exams,...}.rs`
-- [ ] `src/cli/jwc.rs` 子命令枚举（`sjtu jwc grades [--year] [--term] [--scope]` / `jwc schedule today|week` / `jwc gpa` / `jwc exams` ...）
-- [ ] **CP-J1 真机**：`sjtu jwc grades --yaml` 跑通 N305005，输出脱敏（学号 / 姓名只在 `--with-identity` 标志下打全）
-- [ ] CP-J2..CP-Jn 按 SP 逐个 checkpoint
-- [ ] `tests/jwc_*.rs` mockito 端单测（不打真水源）
+- [x] `src/apps/jwc/{mod,api,bind,http,models,throttle,tests_parse}.rs` — ZF 通用 `JwcPage<T>` envelope + post_form_json + visit_sp_page（pre-GET 绑模块）+ /jaccountlogin CAS 入口 — 2026-04-26
+- [x] `src/commands/jwc/{mod,data,handlers}.rs` — MVP 仅 grades — 2026-04-26
+- [x] `src/cli/jwc.rs` — `sjtu jwc grades [--xnm] [--xqm] [--page] [--limit]` — 2026-04-26
+- [x] **CP-J1 真机**：`sjtu jwc grades --xnm 1900 --xqm 3 --json` 跑通 N305005（用不存在学年触发空 items 安全验全链路），CAS 8 跳 + SP 页面预 GET + POST 全过 — 2026-04-26
+- [ ] **CP-J1.b**：用户私下跑真学年（`--xnm 2025` 等）确认实数据形态 + 解析 OK（CLI 默认输出脱敏，避开学号/姓名进我上下文）
+- [ ] N2151 课表 / N309131 GPA / N358105 考试 各 SP 实装 + CP-J2..CP-J4
+- [ ] CP-J5..CP-Jn 按 §2.5..§2.9 5 个 phase-2 SP 逐个 checkpoint
+- [ ] `tests/jwc_*.rs` mockito 端单测（不打真服务器）
 
 ---
 

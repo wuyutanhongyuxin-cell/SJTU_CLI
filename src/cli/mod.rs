@@ -8,6 +8,7 @@ use serde::Serialize;
 
 mod canvas;
 mod jwbmessage;
+mod jwc;
 mod shuiyuan;
 mod shuiyuan_args;
 
@@ -72,6 +73,12 @@ enum Commands {
         #[command(subcommand)]
         sub: canvas::CanvasSub,
     },
+
+    /// 教务系统（i.sjtu.edu.cn / 正方）：成绩 / 课表 / GPA / 考试安排（MVP 仅成绩）。
+    Jwc {
+        #[command(subcommand)]
+        sub: jwc::JwcSub,
+    },
 }
 
 /// 供 clap 解析的 `--browser` 枚举。只为了 derive `ValueEnum`。
@@ -113,6 +120,7 @@ pub async fn run() -> Result<()> {
         Commands::Shuiyuan { sub } => shuiyuan::dispatch(sub, fmt).await,
         Commands::Messages { sub } => jwbmessage::dispatch(sub, fmt).await,
         Commands::Canvas { sub } => canvas::dispatch(sub, fmt).await,
+        Commands::Jwc { sub } => jwc::dispatch(sub, fmt).await,
     }
 }
 

@@ -2,4 +2,5 @@
 
 pub mod canvas;
 pub mod jwbmessage;
+pub mod jwc;
 pub mod shuiyuan;

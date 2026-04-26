@@ -15,6 +15,36 @@
 
 ---
 
+## 2026-04-26 — i.sjtu CAS 入口是 `/jaccountlogin`，不是 nav 深页（CP-J1 实装坑）
+
+**触发情境**：S3f 实装 N305005 学生成绩查询 CLI，照 `cas/mod.rs` 注释"target_url 必须是 SP 真正进的页面（如 `/xtgl/index_initMenu.html`）"把 jwc 的 LOGIN_URL 设成深页。CAS 链跑完落盘 sub_session（JSESSIONID + keepalive 两条 cookie），但调 `POST /cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005` 一律收 ZF 自定义 `status=901` + 空 body。
+
+**错误模式**：把"target_url 给 SP 深页"当成普适规则套到 i.sjtu 上。实际 i.sjtu（ZF）和 my.sjtu（jwbmessage）的 SSO 形态根本不同：
+- my.sjtu / shuiyuan：直接 GET SP 深页 → 自动 302 到 jaccount → JAAuthCookie 验过 → 跳回 SP，整条链 4-6 跳走完，cookie 落盘
+- i.sjtu / ZF：直接 GET 深页（甚至 nav 主页 `/xtgl/index_initMenu.html?jsdm=xs`）**只 2 跳**就停在 ZF 自家内部 login 页 `/xtgl/login_slogin.html`，根本没去 jaccount —— 落盘的是 anonymous JSESSIONID，server 端没绑 user_id
+
+ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a href="/jaccountlogin" id="authJwglxtLoginURL">通过jAccount登录</a>`，**这才是 CAS 入口**。访问 `/jaccountlogin` 才会触发 8 跳完整链路：i.sjtu → jaccount/oauth2/authorize?client_id=MVJGw8u0bzoMJVbfb4Fk&redirect_uri=... → jaccount/jaccount/jalogin?sid=jaoauth220160718 → JAAuthCookie 验 → jaccount/oauth2/authorize?context=...&jatkt=... → http://i.sjtu.edu.cn/jaccountlogin?code=... → https 升级 → /xtgl/login_slogin.html（server 处理 OAuth code）→ /xtgl/index_initMenu.html?jsdm=xs&_t=...&echarts=1（200 终点）。落盘 4 cookies（JSESSIONID + keepalive + 2 个 path 维度变体）。
+
+第二个 ZF 独有坑：**首次数据 POST 之前必须先 GET SP 页面一次**（`/cjcx/cjcx_cxDgXscj.html?gnmkdm=N305005&layout=default`），ZF server 才会把 gnmkdm 绑到 Tomcat session，后续 POST 才会被认。否则就算 session 是认证过的也照样 901。浏览器里的"点 nav → 进 SP 页 → 按查询"流程隐含了这步 GET，CLI 必须显式补。
+
+诊断这个 901 的关键：通配的 final_url 检查不够，必须**对比 final_url 的 path 与请求 path 是否一致**——ZF 内部 login 页 (`/xtgl/login_slogin.html`) 落在 `i.sjtu.edu.cn` 同域，单看 host 防不住。
+
+**正确做法**：
+- ZF 实例（i.sjtu / 教务）的 CAS LOGIN_URL = `https://i.sjtu.edu.cn/jaccountlogin`，不是 nav 深页
+- 任何 SP 数据 POST 之前先 GET 该 SP 页面 = "register" gnmkdm 到 Tomcat session（同 Client 生命周期内每个 page_path 只 GET 一次，用 `Mutex<HashSet<&'static str>>` 缓存）
+- pre-GET 必须比对 `resp.url().path()` 与请求 path；不等 → 主动报错 `session 在 ZF 侧未认证`
+- 调试 ZF 链路：`RUST_LOG="sjtu_cli::auth::cas=debug,jwc=debug"`，每跳 URL 都打出来，看落点是不是真的进了 SP 页
+
+**规则**：
+- ✅ 每个 SP 第一次开实装 → **先开 RUST_LOG=debug 数 hop 数**：少于 5 跳 + 没经过 jaccount = CAS 入口选错
+- ✅ ZF 实例的 CAS 入口从其内部 login 页 HTML 找 `id="authJwglxtLoginURL"` / `href="/jaccountlogin"` 这种锚点；my.sjtu 等 OAuth2-direct 实例不需要
+- ✅ 数据 POST 前 pre-GET SP 页 + final_url path 严格匹配；同 Client 内 cache 已绑过的 SP 集合
+- ❌ 不要把 jwbmessage / shuiyuan 的"target_url = SP 深页"硬套到 ZF
+- ❌ 不要单凭 `final_url 不在 jaccount 域` 就当作 CAS 成功 —— ZF 内部 login 页同域，需要 path 匹配
+- ❌ 不要看到 `status=901 空 body` 就以为是 cookie 注入问题；先排 SP 模块未绑 / session anonymous 这两条
+
+---
+
 ## 2026-04-26 — i.sjtu = ZF 教务系统 + 半自动 chrome-devtools 调研范式
 
 **触发情境**：用户说"i.sjtu.edu.cn 完整严格详细准确实现"，我下意识把 i.sjtu 当"交我办"聚合门户去规划 SP 跳板调研（C 选项）。chrome-devtools `take_snapshot` 一抓页面 title="教学管理信息服务平台"，nav 全是教务向（报名/选课/成绩/课表/评价），**根本不是聚合门户**——i.sjtu 是 ZFSOFT 正方教务系统的 SJTU 实例（server header `ZFSOFT.Inc + Tomcat 7.0.94 + Java 1.8`）。聚合门户其实是 my.sjtu.edu.cn。继续抓 N305005 学生成绩查询：页面 GET 返 HTML 含 form，"查询"按钮 POST `cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005`，form 含 `xnm/xqm/queryModel.showCount/queryModel.currentPage/time` 等字段，response 是统一分页 envelope `{currentPage, totalCount, totalResult, items:[...]}`，每条 item 50+ 字段含大量内部冗余（`queryModel` 嵌套自己一份、`date/dateDigit` 响应时间、`xh_id` 256-hex token、`userModel` 空对象等）。用户红线：选课/信息维护/教学评价/报名申请/任何 form submit 全禁；用户偏好"我抓只读、你点查询/写"半自动模式。
