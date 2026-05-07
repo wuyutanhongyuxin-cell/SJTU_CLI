@@ -2,6 +2,8 @@
 
 pub mod auth_cmds;
 pub mod canvas;
+pub mod elec;
 pub mod jwbmessage;
 pub mod jwc;
+pub mod services;
 pub mod shuiyuan;

@@ -1,16 +1,59 @@
 //! `sjtu jwc <sub>` 教务系统命令的 clap 枚举 + 派发。
 //!
-//! 命令清单（MVP 仅 1 条）：
-//! - `grades` —— §2.1 N305005 学生成绩查询
+//! 命令清单（按 §2 顺序）：
+//! - `grades`   — §2.1 N305005 学生成绩查询
+//! - `schedule` — §2.2 N2151 个人课表查询
+//! - `gpa`      — §2.3 N309131 GPA / 学积分查询（**两阶段**）
+//! - `exams`    — §2.4 N358105 考试信息查询
 //!
-//! 后续按 tasks/isjtu_investigation.md §2 顺序补：schedule (N2151) /
-//! gpa (N309131) / exams (N358105) 等。每个 SP 一个 `JwcSub` variant。
+//! 后续按 tasks/isjtu_investigation.md §2.5..§2.9 顺序补：详细成绩 / 修业 / 周课表 /
+//! 培养计划 / 毕设。每个 SP 一个 `JwcSub` variant。
 
 use anyhow::Result;
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 
+use crate::apps::jwc::{GpaRank, GpaScope};
 use crate::commands::jwc as jwc_cmds;
 use crate::output::OutputFormat;
+
+/// `sjtu jwc gpa --scope` 的 ValueEnum。
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum GpaScopeArg {
+    /// 核心课程（默认）。
+    Hxkc,
+    /// 全部课程。
+    Qbkc,
+}
+
+impl From<GpaScopeArg> for GpaScope {
+    fn from(s: GpaScopeArg) -> Self {
+        match s {
+            GpaScopeArg::Hxkc => GpaScope::HxKc,
+            GpaScopeArg::Qbkc => GpaScope::QbKc,
+        }
+    }
+}
+
+/// `sjtu jwc gpa --rank` 的 ValueEnum。
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum GpaRankArg {
+    /// 年级专业（默认）。
+    Njzy,
+    /// 年级。
+    Nj,
+    /// 班级。
+    Bj,
+}
+
+impl From<GpaRankArg> for GpaRank {
+    fn from(r: GpaRankArg) -> Self {
+        match r {
+            GpaRankArg::Njzy => GpaRank::NjZy,
+            GpaRankArg::Nj => GpaRank::Nj,
+            GpaRankArg::Bj => GpaRank::Bj,
+        }
+    }
+}
 
 /// `sjtu jwc <sub>` 子命令集合。
 #[derive(Debug, Subcommand)]
@@ -33,6 +76,52 @@ pub enum JwcSub {
         #[arg(long, default_value_t = 50)]
         limit: u32,
     },
+
+    /// 查询课表（N2151，学年学期视图）。`--xnm`/`--xqm` 留空 = 当前学年/学期。
+    Schedule {
+        /// 学年 4 位。
+        #[arg(long)]
+        xnm: Option<String>,
+        /// 学期编码：`3`/`12`/`16`。
+        #[arg(long)]
+        xqm: Option<String>,
+    },
+
+    /// 查询 GPA / 学积分（N309131，**两阶段**触发统计 + 拉结果）。
+    Gpa {
+        /// 课程范围：`hxkc` 核心课 / `qbkc` 全部课。
+        #[arg(long, value_enum, default_value_t = GpaScopeArg::Hxkc)]
+        scope: GpaScopeArg,
+
+        /// 排名范围：`njzy` 年级专业 / `nj` 年级 / `bj` 班级。
+        #[arg(long, value_enum, default_value_t = GpaRankArg::Njzy)]
+        rank: GpaRankArg,
+
+        /// 起始学年学期 6 位编码（如 `202503` = 2025-2026 第 1 学期）。留空 = 累计起点。
+        #[arg(long)]
+        from: Option<String>,
+
+        /// 截止学年学期 6 位编码。留空 = 累计至今。
+        #[arg(long)]
+        to: Option<String>,
+    },
+
+    /// 查询考试信息（N358105）。`--xnm`/`--xqm` 留空 = 当前学年/学期。
+    Exams {
+        /// 学年 4 位。
+        #[arg(long)]
+        xnm: Option<String>,
+        /// 学期编码：`3`/`12`/`16`。
+        #[arg(long)]
+        xqm: Option<String>,
+
+        /// 页码，从 1 起。
+        #[arg(long, default_value_t = 1)]
+        page: u32,
+        /// 每页条数（ZF 允许 15..500；默认 50）。
+        #[arg(long, default_value_t = 50)]
+        limit: u32,
+    },
 }
 
 /// 派发 `sjtu jwc <sub>` 到 `commands::jwc` 的 handler。
@@ -44,5 +133,18 @@ pub async fn dispatch(sub: JwcSub, fmt: Option<OutputFormat>) -> Result<()> {
             page,
             limit,
         } => jwc_cmds::cmd_grades(xnm, xqm, page, limit, fmt).await,
+        JwcSub::Schedule { xnm, xqm } => jwc_cmds::cmd_schedule(xnm, xqm, fmt).await,
+        JwcSub::Gpa {
+            scope,
+            rank,
+            from,
+            to,
+        } => jwc_cmds::cmd_gpa(scope.into(), rank.into(), from, to, fmt).await,
+        JwcSub::Exams {
+            xnm,
+            xqm,
+            page,
+            limit,
+        } => jwc_cmds::cmd_exams(xnm, xqm, page, limit, fmt).await,
     }
 }

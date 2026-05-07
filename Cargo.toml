@@ -43,6 +43,9 @@ reqwest = { version = "0.12", default-features = false, features = ["cookies", "
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 url = "2"
 
+# --- S3e 生活服务（电费）金额硬约束：禁 f64，所有金额 / 度数走 Decimal ---
+rust_decimal = { version = "1", features = ["serde"] }
+
 [dev-dependencies]
 mockito = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

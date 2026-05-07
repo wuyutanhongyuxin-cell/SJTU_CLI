@@ -603,3 +603,252 @@ POST /xsbysjgl/cjck_cxCjckIndex.html?doType=query&gnmkdm=N532560
 5. 用户回 "点了"，我：`list_network_requests` → `get_network_request` 抓 `doType=query` 那一发
 6. 我：把 endpoint / form / response shape 追加到 §2，红线无关字段一律脱敏
 7. 我：报告并请求下一个 SP 方向
+
+---
+
+## 6. 办事大厅 (my.sjtu.edu.cn / `apps/services`) ✅ 2026-04-27 真机抓
+
+> **注意：与 i.sjtu 完全不同体系**——`my.sjtu.edu.cn` 是 SJTU 自家 REST，不是 ZF / 服务门户 SP。无 `gnmkdm`、无 `doType=query`、无 ZF 分页 envelope。CLI 端 `apps/services/*` 独立模块，**不复用 `apps/jwc/*` 的 SP HTTP helper**。
+
+### 6.1 鉴权链 + 通用 HTTP 形态
+
+```
+jaccount QR / CAS  ──►  my.sjtu.edu.cn JSESSIONID + keepalive cookie
+                          ▲
+                          └ S2 CAS 子系统模块需 follow https://my.sjtu.edu.cn/ 重定向链
+```
+
+**Cookie**：`JSESSIONID` (HttpOnly) + `keepalive`（每 200 响应都会 refresh） + `PORTAL_LOCALE=zh`。
+
+**必备 headers**：
+
+```
+X-Requested-With: XMLHttpRequest        # 必带，否则被路由到 HTML 兜底
+Accept:           application/json, text/plain, */*
+Referer:          https://my.sjtu.edu.cn/ui/task/<todo|done|cc>
+User-Agent:       <真实 UA>
+```
+
+**通用 envelope**（三端点共享）：
+
+```json
+{ "errno": 0, "error": "", "total": 37, "entities": [ /* ... */ ] }
+```
+
+- `errno != 0` 视作业务错误，`error` 为消息文本
+- `total` 为整型，与 UI "共 N 条" 对齐
+- `entities` 为列表
+
+### 6.2 端点速查
+
+| 路由 (UI) | 端点 | 关键 query | entity 形态 |
+|---|---|---|---|
+| `/ui/task/todo` | `GET /api/task/me/processes/todo` | `thing` | **嵌套** `process` + 当前步骤铺顶层 |
+| `/ui/task/done` | `GET /api/task/me/processes/completed` | `limit / start / order / keyword` | **铺平** + `sort` / `pendingTasks` |
+| `/ui/task/cc`   | `GET /api/task/me/processes/cc` | `limit / start / unread / keyword` | 同 completed |
+
+**MVP 范畴**：仅 `todo`（最高频、风险最低）。`completed` / `cc` 留 phase-2。
+
+### 6.3 N-todo — 待办列表
+
+**端点**
+
+```
+GET /api/task/me/processes/todo?thing=false
+```
+
+**query 字段**
+
+| 字段 | 值域 | 含义 |
+|---|---|---|
+| `thing` | `false` / `true` | 是否含"物品类"事项（默认 `false`，CLI MVP 固定 `false`） |
+
+无 `limit` / `start` —— 服务端一次返全部待办。
+
+**响应**
+
+```json
+{
+  "errno": 0, "error": "", "total": 1,
+  "entities": [
+    {
+      "process": { /* 流程主体 */ },
+      "assignTime": 1773540888,
+      "status": 1,
+      "code": "ADD",
+      "id": "0964f041-bc0f-4640-bd07-de9151228bc8",
+      "name": "填写申请",
+      "uri": "https://form.sjtu.edu.cn/infoplus/form/36790604/render"
+    }
+  ]
+}
+```
+
+**entity 顶层字段（CLI 暴露）**
+
+| 字段 | 含义 |
+|---|---|
+| `id` | 当前步骤 UUID（与 `process.id` 不同） |
+| `name` | 当前步骤名（"填写申请" / "审核" / ...） |
+| `code` | 步骤代码（**`"ADD"` = 我申请的；其他 = 等我处理的**，CLI 端按此分流） |
+| `uri` | 当前步骤跳转 URL（form.sjtu.edu.cn）|
+| `assignTime` | unix 秒，派发时间 |
+| `status` | int（具体语义未反查，CLI 透传） |
+
+**`process` 字段（CLI 暴露）**
+
+| 字段 | 含义 |
+|---|---|
+| `process.id` | 流程实例 UUID |
+| `process.entry` | 流水号（"20054472"，可能为空字符串） |
+| `process.name` | 事项标题 |
+| `process.uri` | 流程详情 URL |
+| `process.create` / `update` | unix 秒 |
+| `process.status` | "doing" / "done" / ... |
+| `process.app.code` | 应用 code（"HXBDSQ"） |
+| `process.app.name` | 应用名 |
+| `process.app.department` | 发起部门 |
+| `process.app.contact` | 联系信息（电话 / 邮箱混排） |
+| `process.app.tags` | 逗号串 + `#CategoryName:xxx,#CategoryOrder:N,#CategoryColumns:M` 元信息混排 |
+| `process.owner.account` | 申请人 jaccount |
+| `process.owner.name` | 申请人姓名（**身份字段，默认脱敏**） |
+| `process.owner.id` | 申请人 UUID（同上脱敏） |
+| `process.milestone.percent` | 进度百分比（0..100） |
+| `process.version` | unix 秒，流程模板版本 |
+
+### 6.4 N-completed — 已办列表（phase-2）
+
+**端点**
+
+```
+GET /api/task/me/processes/completed?limit=10&start=0&order=auto&keyword=
+```
+
+**query 字段**
+
+| 字段 | 值域 | 含义 |
+|---|---|---|
+| `limit` | 10 / 20 / ... | 每页条数（UI 下拉 10/20/30/50/100） |
+| `start` | 0, 10, 20, ... | offset 偏移 |
+| `order` | `auto` | 智能排序（其他枚举 UI 未暴露，待补抓） |
+| `keyword` | 任意字符串 | 搜索关键字（空 = 不过滤） |
+
+**额外过滤参数**（UI 复选框，**未现场捕获实际 query 名**，phase-2 实装时再抓）：
+- "只看我申请的事项" → 推测 `mine=true`
+- "只看进行中事项" → 推测 `status=doing`
+
+**entity 字段差异 vs todo**：
+- **顶层直接铺平字段**（`entry` / `name` / `status` / `uri` / `update` / `create` / `tags` / `app` / `owner` / `milestone`），**没有再裹一层 `process`**
+- 多 `sort` 字段（unix 秒，排序键）
+- "进行中"项有 `pendingTasks: "填写申请"`（当前步骤名）
+- 通知服务平台类项 `entry: ""` + `app.system: "通知服务平台"` + `app.visible: false` + `owner.name` 缺失（仅 `account` 系统账号）
+
+### 6.5 N-cc — 抄送列表（phase-2）
+
+**端点**
+
+```
+GET /api/task/me/processes/cc?limit=10&start=0
+```
+
+**query**：`limit` / `start` / `unread`（boolean）/ `keyword`（推测）
+
+**entity 形态**：同 completed（铺平）。空数据返 `total:0, entities:[]`。
+
+### 6.6 已知坑 / 实现建议
+
+- **三端点 entity schema 不一致**：todo 嵌套 `process` 子对象，completed / cc 铺平 —— CLI 端用**两个 struct**：`TodoItem`（顶层 = step 字段，`process` 子对象）、`CompletedItem`（铺平），不要强行合并
+- **大量字段可缺失**：`entry` / `owner.name` / `owner.id` / `milestone` / `version` / `process.app.code` / `process.app.contact` / `app.system` 都可能缺；反序列化必须 `Option<>`
+- **身份字段默认脱敏**：`owner.name` / `owner.id` —— Envelope 默认抹去，仅 `--with-identity` 暴露（与 jwc 模块一致）
+- **`code == "ADD"` vs 其他**：UI 端就是按这个区分"我申请的（1）"vs"等我处理的（0）"——CLI 端 `services pending` 命令内部分流为两个分组展示
+- **`process.app.tags` 是混合串**：业务标签 + `#CategoryName:xxx,#CategoryOrder:N,#CategoryColumns:M` 显示元信息混在一起，逗号分隔；CLI 解析时按 `#` 前缀过滤掉元信息项
+- **认证依赖**：CAS 子系统跳转链需 follow `https://my.sjtu.edu.cn/`；S2 模块当前主要面向 i.sjtu，**S3d 实装前需在 `cookies` 模块给 my.sjtu 加一个 sub-session（域 `my.sjtu.edu.cn`）**，避免与 i.sjtu 串 cookie
+- **无写操作触达**：本调研全程只跑 GET，未点任何按钮 —— 与 CLAUDE.md 硬红线一致
+- **MVP 命令**：`sjtu services pending [--json]` —— 默认 table，table 列：`时间相对值 / 流水号 / 事项 / 当前步骤 / 分组（我申请/等我处理）`；`--json` 出 Envelope 完整
+
+---
+
+## 7. 生活服务（`elec.sjtu.edu.cn` / `apps/life`）✅ 2026-04-30 真机抓
+
+### 7.0 范围实情（**重要**）
+
+**S3e MVP 只做"宿舍电费"。一卡通余额 phase-2。**
+
+- **一卡通余额查询 web 路径不存在**：交我办 app store 的"我的校园卡"用 `taskcenter://edu.sjtu.push/campusCard` 移动 deep-link，web 端无对应 SP；`ecard.sjtu.edu.cn` 校园网内访问限制（off-campus 跳 restrict.sjtu.edu.cn）
+- **结论**：CLI off-campus 不可达。phase-2 待用户在校网时再现场抓
+
+### 7.1 鉴权链 + 通用 HTTP 形态
+
+- **入口**：`https://my.sjtu.edu.cn/api/task/me/apps` 里 `code=new_payforpower` 的 `uri` = `https://form.sjtu.edu.cn/infoplus/form/new_payforpower/start?locale=zh` —— 浏览器跳一次后**重定向到 `https://elec.sjtu.edu.cn/ui/recharge`**（独立子域，不是 form.sjtu 的 form）
+- **CAS 链**：`https://elec.sjtu.edu.cn/` → JAccount OAuth/CAS → 落回 `elec.sjtu.edu.cn`，发 `JSESSIONID` + `keepalive` cookie
+- **会话 cookie**：`JSESSIONID=...; keepalive='...='; PORTAL_LOCALE=zh`（与 my.sjtu 同域族但是**独立 sub-session**，cookie 不共享 — CLI 端 `cas_login("elec", "https://elec.sjtu.edu.cn/")` 单独缓存）
+- **必备 header**：`X-Requested-With: XMLHttpRequest`、`Accept: application/json, text/plain, */*`
+- **响应包装**：与办事大厅一致 `{errno, error, total, entities}`（`errno=0, error="success"`）
+
+### 7.2 端点速查
+
+| API | 用途 | 入参 | 关键返回字段 |
+|---|---|---|---|
+| `GET /api/me/info` | 当前用户绑定的房间 | — | `xqdm, lddm, roomdm, roomid, mdid, roomname, isbind, account, name, workNo, dept` |
+| `GET /api/comm/xqdm` | 校区列表 | — | `[{dm, mc, mcen, id}]`（8 个：闵东 02/闵西 01/徐汇 03/七宝 04/南洋北苑 05/闵教师 06/张江 07/北博 08）|
+| `GET /api/comm/lddm?xqdm=02` | 楼栋 | `xqdm` | `[{dm, mc}]` |
+| `GET /api/comm/lcdm?lddm=0210` | 楼层 | `lddm` | `[{dm, mc}]` |
+| `GET /api/comm/roomdm?lcdm=021004` | 房间 | `lcdm` | `[{dm, mc}]` |
+| `GET /api/comm/mdids?RoomId=11226&RoomDm=02100406` | 表号 | `RoomId, RoomDm` | `[{mdid, ...}]` |
+| **`GET /api/ws/sydl`** | **余额（关键）** | — | `SYL`(剩余度数)、`SYBZ`(剩余补助度数)、`SYLJE`(剩余金额元)、`SYBZJE`(剩余补助金额元)|
+| `GET /api/rechage/ydl?year=Y&month=M` | 月用电聚合 | `year, month` | `{last: f64, now: f64}` |
+| `GET /api/rechage/ydlmx?begin=&end=` | 日用电明细 | `begin, end` (YYYY-MM-DD) | `[{roomdm, date, used: f64}]` |
+
+### 7.3 余额查询响应（`/api/ws/sydl`）
+
+```json
+{
+  "errno": 0, "error": "success", "total": 1,
+  "entities": [{
+    "SYL":    "284.25",   // 剩余度数 (kWh) — 字符串
+    "SYBZ":   "18.22",    // 剩余补助度数
+    "SYLJE":  "180.78",   // 剩余金额（元） — 字符串
+    "SYBZJE": "11.59"     // 剩余补助金额
+  }]
+}
+```
+
+字段含义：`SY`=剩余、`L`=量（度数）、`BZ`=补助、`JE`=金额。
+
+### 7.4 月度用电（`/api/rechage/ydl`）
+
+```json
+{ "errno":0, "error":"success", "total":0,
+  "entities": [{ "last": 80.55, "now": 62.44 }] }
+```
+
+注意 `total:0` 不代表无数据 —— 这个端点 `total` 字段在该 API **被服务端误用**，`entities` 永远 1 条带 `last` / `now`。CLI 实现忽略 `total`，直接读 `entities[0]`。
+
+### 7.5 用电明细（`/api/rechage/ydlmx`）
+
+```json
+{ "errno":0, "error":"success", "total":6,
+  "entities": [
+    { "roomdm": "02100406", "date": "2026-04-24", "used": 3.37 },
+    { "roomdm": "02100406", "date": "2026-04-25", "used": 2.16 },
+    ...
+  ]
+}
+```
+
+`begin`/`end` 包含两端；超过 30 天范围现场未测，phase-2 验。
+
+### 7.6 已知坑 / 实现建议
+
+- **金额字段类型混乱**：`/api/ws/sydl` 是 string（"180.78"），`/api/rechage/ydl{,mx}` 是 number（80.55 / 3.37）—— CLI 端用 `serde_with::DisplayFromStr` 或 custom `deserialize_with` 把两类都收成 `rust_decimal::Decimal`。**绝不 f64**（CLAUDE.md 硬约束）
+- **独立 sub-session**：`elec.sjtu.edu.cn` 与 `my.sjtu.edu.cn` 不共享 cookie，CLI 用 `cas_login("elec", "https://elec.sjtu.edu.cn/")` 独立缓存到 `sub_sessions/elec.json`
+- **路由别名**：`elec.sjtu.edu.cn/` = `elec.sjtu.edu.cn/ui/recharge`（页面 title "电费充值" 但实质是 dashboard，含查询；CLI 不点 "立即支付"）
+- **绑定房间**：`/api/me/info` 已知 `isbind:true` 时直接走 `/api/ws/sydl` 拿当前房间余额；`isbind:false` 时需先选房间 —— MVP 假设已绑定，未绑定报错指导用户先去 web 端绑
+- **房间字典层级**：xqdm(校区) → lddm(楼栋) → lcdm(楼层) → roomdm(房间) → mdid(表号)；MVP 命令不做选房，只查"当前已绑定房间"余额 + 用电
+- **MVP 命令集**：
+  - `sjtu elec balance [--json]` → 调 `/api/me/info` + `/api/ws/sydl`，输出 `room: D10-406, balance: 180.78 元, remaining_kwh: 284.25, subsidy_balance: 11.59 元, subsidy_kwh: 18.22`
+  - `sjtu elec usage [--month YYYY-MM]` → 调 `/api/rechage/ydl?year=&month=`，默认当前月，输出 `last_month: 80.55, this_month: 62.44`
+  - `sjtu elec history [--days N]` → 调 `/api/rechage/ydlmx?begin=&end=`，默认 7 天
+- **无写操作触达**：本调研全程只 GET，"立即支付"按钮全程未点 —— 硬红线一致
+- **一卡通 phase-2**：调 `/api/me/info` 类 ecard 端点需校园网；CLI 暂不接，命令 `sjtu card balance` 留空待填
+

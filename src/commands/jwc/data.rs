@@ -7,7 +7,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::apps::jwc::Grade;
+use crate::apps::jwc::{Exam, Gpa, Grade, KbItem};
 
 /// `sjtu jwc grades` 的 data 形状。
 #[derive(Debug, Serialize)]
@@ -26,4 +26,46 @@ pub(super) struct GradesData {
     pub returned: usize,
 
     pub items: Vec<Grade>,
+}
+
+/// `sjtu jwc schedule` 的 data 形状。
+#[derive(Debug, Serialize)]
+pub(super) struct ScheduleData {
+    pub xnm: Option<String>,
+    pub xqm: Option<String>,
+    /// 客户端实际收到的课程条数（= kb_list.len()）。
+    pub returned: usize,
+    /// 周几文本映射 `{"1":"星期一", ..., "7":"星期日"}`。
+    pub xqjmc_map: Value,
+    /// 课表条目（已按周几+节次铺平，`zcd` 周次仍是字符串需 parser）。
+    pub items: Vec<KbItem>,
+}
+
+/// `sjtu jwc gpa` 的 data 形状。`items[0]` 通常即当前学生。
+#[derive(Debug, Serialize)]
+pub(super) struct GpaData {
+    /// 查询入参回显。
+    pub scope: &'static str, // hxkc / qbkc
+    pub rank: &'static str, // njzy / nj / bj
+    pub qs_xnxq: Option<String>,
+    pub zz_xnxq: Option<String>,
+
+    pub total_result: Option<Value>,
+    pub returned: usize,
+    pub items: Vec<Gpa>,
+}
+
+/// `sjtu jwc exams` 的 data 形状。
+#[derive(Debug, Serialize)]
+pub(super) struct ExamsData {
+    pub xnm: Option<String>,
+    pub xqm: Option<String>,
+    pub page: u32,
+    pub limit: u32,
+
+    pub total_result: Option<Value>,
+    pub total_page: Option<Value>,
+
+    pub returned: usize,
+    pub items: Vec<Exam>,
 }

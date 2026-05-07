@@ -1,6 +1,6 @@
-//! 教务 Client：CAS 跳转 + 各 SP 数据查询入口。
+//! 教务 Client：CAS 跳转 + 各 SP 数据查询入口（按 SP 分文件）。
 //!
-//! 认证链路：复用 S2 `cas::cas_login("jwc", "https://i.sjtu.edu.cn/")`。
+//! 认证链路：复用 S2 `cas::cas_login("jwc", LOGIN_URL)`。
 //! CAS 302 链最终落到 i.sjtu 首页时种 JSESSIONID + keepalive，本模块只负责拿 cookie，
 //! ZF 后端的 csrftoken 在 page HTML hidden input 里（CLI 暂不实现写操作，无需解析）。
 //!
@@ -8,6 +8,14 @@
 //! - 一律走 `super::http::post_form_json`（统一 header + 节流 + 错误诊断）
 //! - 字段命名沿用 ZF 拼音缩写（与 `tasks/isjtu_investigation.md` §2 字段表一致）
 //! - 公共 form 字段（queryModel.* / _search / nd / time / pkey）由 `build_common_form` 拼
+//! - 每个 SP 一文件，`impl Client { ... }` 分散在各子模块；公共 helper 在本文件。
+
+mod exams;
+mod gpa;
+mod grades;
+mod schedule;
+
+pub use gpa::{GpaRank, GpaScope};
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -19,8 +27,7 @@ use reqwest::Client as HttpClient;
 use tokio::sync::Mutex;
 
 use super::bind::visit_sp_page;
-use super::http::{build_http_client, post_form_json};
-use super::models::{Grade, JwcPage};
+use super::http::build_http_client;
 use super::throttle::Throttle;
 use crate::auth::cas::cas_login;
 
@@ -38,10 +45,10 @@ pub(super) const LOGIN_URL: &str = "https://i.sjtu.edu.cn/jaccountlogin";
 
 /// 教务 Client。
 pub struct Client {
-    http: HttpClient,
-    throttle: Arc<Throttle>,
+    pub(super) http: HttpClient,
+    pub(super) throttle: Arc<Throttle>,
     /// 同一会话内 query 累计计数（ZF 表单字段 `time` 自增防缓存戳，从 0 起）。
-    time_counter: AtomicU32,
+    pub(super) time_counter: AtomicU32,
     /// 已绑定到 Tomcat session 的 SP 页面集合（避免重复 pre-GET）。
     visited_sp: Mutex<HashSet<&'static str>>,
     /// CAS 返回的元数据，供上层 Envelope 展示。
@@ -75,7 +82,10 @@ impl Client {
     }
 
     /// 确保 SP 页面已绑到 session（同一 Client 生命周期内每个 page_path 只 GET 一次）。
-    async fn ensure_sp_bound(
+    ///
+    /// ZF 后端在 GET `<sp-page>?gnmkdm=<gnmkdm>&layout=default` 时把功能模块登记到
+    /// server-side session；未绑则后续数据 POST 一律 status=901（实测 2026-04-26）。
+    pub(super) async fn ensure_sp_bound(
         &self,
         page_path: &'static str,
         gnmkdm: &str,
@@ -92,45 +102,18 @@ impl Client {
         Ok(())
     }
 
-    /// §2.1 N305005 — 学生成绩查询。
-    ///
-    /// `xnm` 学年 4 位（如 `2025`），`None` = 全部；
-    /// `xqm` 学期编码（`3` 秋 / `12` 春 / `16` 夏），`None` = 全部；
-    /// `page` 从 1 起；`page_size` 范围 15..500。
-    pub async fn grades(
-        &self,
-        xnm: Option<&str>,
-        xqm: Option<&str>,
-        page: u32,
-        page_size: u32,
-    ) -> Result<JwcPage<Grade>> {
-        // 必须先 GET SP 页面把 gnmkdm 绑到 Tomcat session（否则 POST 一律 901）。
-        self.ensure_sp_bound("/cjcx/cjcx_cxDgXscj.html", "N305005", "N305005 grades")
-            .await?;
-
-        let mut form = self.build_common_form(page, page_size);
-        form.push(("xnm", xnm.unwrap_or("").to_string()));
-        form.push(("xqm", xqm.unwrap_or("").to_string()));
-        form.push(("sfzgcj", String::new())); // 是否仅最高成绩：空 = 否
-        form.push(("kcbj", String::new())); // 主辅修筛选：空 = 全部
-
-        post_form_json(
-            &self.http,
-            &self.throttle,
-            "/cjcx/cjcx_cxXsgrcj.html",
-            "N305005",
-            "/cjcx/cjcx_cxDgXscj.html",
-            &form,
-            "N305005 grades",
-        )
-        .await
-    }
-
     /// 拼公共 form 字段（§1.5）：`queryModel.*` + `_search` + `nd` + `time` + `pkey`。
     /// 调用方在此基础上 push SP 专属字段。
-    fn build_common_form(&self, page: u32, page_size: u32) -> Vec<(&'static str, String)> {
+    pub(super) fn build_common_form(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Vec<(&'static str, String)> {
         let nd = Utc::now().timestamp_millis().to_string();
-        let time = self.time_counter.fetch_add(1, Ordering::Relaxed).to_string();
+        let time = self
+            .time_counter
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string();
         vec![
             ("queryModel.showCount", page_size.to_string()),
             ("queryModel.currentPage", page.to_string()),

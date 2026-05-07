@@ -1,12 +1,12 @@
 //! ZF 响应反序列化单元测试 —— 不打真服务器，只跑 fixture JSON。
 //!
-//! 覆盖 §2.1 N305005 的 8 大坑里 fixture 可验的部分：
-//! - `totalResult` 是字符串（"52"）能被 `serde_json::Value` 兜住
-//! - `cj` mixed types："86" / "P" / "" / 字母 都能进 `Option<String>` 不 panic
-//! - `xf` / `jd` / `xfjd` 全 String，不被强转
-//! - 空 items 列表（当前学期成绩未出）能正常 deserialize 为空 Vec
+//! 覆盖 §2.1..§2.4 的关键反序列化路径：
+//! - §2.1 N305005：mixed cj 类型 / `totalResult` 字符串 / 字段缺失韧性
+//! - §2.2 N2151 ：专属 envelope（kbList + xqjmcMap）+ 身份字段 (xsxx) 静默丢弃
+//! - §2.3 N309131：step1 裸 JSON 字符串 / step2 envelope 含 gpa / gpapm 字段
+//! - §2.4 N358105：标准分页 + kssj 复合时间字符串保留原样
 
-use super::models::{Grade, JwcPage};
+use super::models::{Exam, Gpa, Grade, JwcPage, KbItem, Schedule};
 
 #[test]
 fn parse_grade_envelope_string_total_result() {
@@ -61,4 +61,97 @@ fn parse_grade_item_resilient_to_missing_fields() {
     assert_eq!(p.items[0].kch.as_deref(), Some("X1"));
     assert!(p.items[0].kcywmc.is_none());
     assert!(p.items[0].cjbdsj.is_none());
+}
+
+#[test]
+fn parse_schedule_envelope_drops_identity_xsxx() {
+    // §2.2 fixture：xsxx 含身份字段（XH/XM/YWXM/NJDM_ID/ZYMC/BJMC）—— **必须静默丢弃**
+    // kbList 课程 + xqjmcMap 周几映射保留。
+    let body = r#"{
+        "qsxqj": "1",
+        "xsxx": {"XH":"5xxxxxxxxx","XM":"张三","NJDM_ID":"2023","ZYMC":"日语","BJMC":"日语2301"},
+        "sjkList": [],
+        "sjfwkg": true,
+        "rqazcList": [],
+        "xskbsfxstkzt": "0",
+        "xqjmcMap": {"1":"星期一","2":"星期二","7":"星期日"},
+        "kbList": [
+            {"xnm":"2025","xqm":"3","kch":"FL1405","kcmc":"日语精读","xf":"3.0",
+             "kcxz":"必修","jxbmc":"(2025-2026-1)-FL1405-01","xqj":"1","xqjmc":"星期一",
+             "jc":"3-4节","jcs":"03-04","jcor":"3-4","zcd":"1-16周","cdmc":"上院 412",
+             "xm":"佐藤","skfsmc":"中文"}
+        ]
+    }"#;
+    let s: Schedule = serde_json::from_str(body).unwrap();
+    assert_eq!(s.kb_list.len(), 1);
+    let k: &KbItem = &s.kb_list[0];
+    assert_eq!(k.kch.as_deref(), Some("FL1405"));
+    assert_eq!(k.zcd.as_deref(), Some("1-16周"));
+    assert_eq!(k.xqj.as_deref(), Some("1"));
+    assert_eq!(k.cdmc.as_deref(), Some("上院 412"));
+    // xqjmcMap 原样保留（serde_json::Value）
+    assert_eq!(
+        s.xqjmc_map.get("1").and_then(|v| v.as_str()),
+        Some("星期一")
+    );
+    // Schedule 没有 xsxx 字段 —— xsxx 被 serde 静默丢弃 ✓（编译期保证）
+}
+
+#[test]
+fn parse_gpa_step1_bare_string() {
+    // §2.3 step 1 返裸 JSON 字符串 `"统计成功！"`，不是对象。
+    let body = r#""统计成功！""#;
+    let s: String = serde_json::from_str(body).unwrap();
+    assert!(s.contains("统计成功"));
+}
+
+#[test]
+fn parse_gpa_envelope_step2_items() {
+    // §2.3 step 2 标准分页 envelope，items[0] 含 gpa / 排名 / 学积分等。
+    let body = r#"{
+        "currentPage":1,"pageSize":50,"totalResult":"1","totalPage":1,
+        "items":[{
+            "gpa":"3.85","gpapm":"3/120","xjf":"88.5","xjfpm":"5/120",
+            "zf":"1234","ms":"14","bjgmc":"0","bjgms":"0",
+            "zxf":"40.0","hdxf":"40.0","bjgxf":"0",
+            "tgl":"100%","kcfw":"hxkc","czsj":"2026-04-30 12:34:56"
+        }]
+    }"#;
+    let p: JwcPage<Gpa> = serde_json::from_str(body).unwrap();
+    assert_eq!(p.items.len(), 1);
+    let g = &p.items[0];
+    assert_eq!(g.gpa.as_deref(), Some("3.85"));
+    assert_eq!(g.gpapm.as_deref(), Some("3/120"));
+    assert_eq!(g.tgl.as_deref(), Some("100%"));
+    assert_eq!(g.kcfw.as_deref(), Some("hxkc"));
+}
+
+#[test]
+fn parse_exams_envelope_compound_kssj() {
+    // §2.4 fixture：kssj 是复合时间字符串 `YYYY-MM-DD(HH:MM-HH:MM)`，
+    // CLI 不在 model 层 parse —— 原样保留。空 items 也不报错。
+    let body_empty = r#"{"totalResult":0,"items":[]}"#;
+    let p_empty: JwcPage<Exam> = serde_json::from_str(body_empty).unwrap();
+    assert!(p_empty.items.is_empty());
+
+    let body = r#"{
+        "currentPage":1,"totalResult":"2","items":[
+            {"xnm":"2025","xqmmc":"1","ksmc":"2025-2026-1期末考试",
+             "kssj":"2026-01-08(10:30-12:30)","kch":"FL1405","kcmc":"日语精读",
+             "jxbmc":"(2025-2026-1)-FL1405-01","xf":"3.0","khfs":"考试","ksfs":"笔试",
+             "cdmc":"上院 412","cdbh":"SY412","cdxqmc":"闵行","kkxy":"外国语学院",
+             "jsxx":"5xxxxxxx/张老师","sjbh":"学校统一-2025-2026-1期末考试-FL1405",
+             "cxbj":"否","pycc":"本科"},
+            {"xnm":"2025","ksmc":"2025-2026-1期末考试","kssj":"2026-01-09(14:00-16:00)",
+             "kch":"MA101","kcmc":"高数","cdmc":"东上院 102","cxbj":"否"}
+        ]
+    }"#;
+    let p: JwcPage<Exam> = serde_json::from_str(body).unwrap();
+    assert_eq!(p.items.len(), 2);
+    assert_eq!(p.items[0].kssj.as_deref(), Some("2026-01-08(10:30-12:30)"));
+    assert_eq!(p.items[0].cdmc.as_deref(), Some("上院 412"));
+    assert_eq!(p.items[0].jsxx.as_deref(), Some("5xxxxxxx/张老师"));
+    // 第二条字段稀疏也不 panic
+    assert_eq!(p.items[1].kch.as_deref(), Some("MA101"));
+    assert!(p.items[1].cdbh.is_none());
 }

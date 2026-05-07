@@ -68,13 +68,17 @@ pub(super) fn build_http_client(session: &Session) -> Result<Client> {
 ///
 /// `path`：URL path（如 `/cjcx/cjcx_cxXsgrcj.html`）。
 /// `gnmkdm`：功能模块代码（如 `N305005`），会拼到 query 上。
+/// `do_type`：URL `?doType=...&gnmkdm=...`；`None` 时省略 doType 段（如 N2151 / N309131
+///   step 1 的 contract 不带 doType）。绝大多数 SP 是 `Some("query")`。
 /// `referer_path`：进入该 SP 时浏览器导航到的页面路径（提供 `Referer`，部分 SP 校验）。
 /// `form`：`(name, value)` 列表，由调用方拼入 `queryModel.*` / `nd` / `time` 等。
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn post_form_json<T: serde::de::DeserializeOwned>(
     http: &Client,
     throttle: &Throttle,
     path: &str,
     gnmkdm: &str,
+    do_type: Option<&str>,
     referer_path: &str,
     form: &[(&str, String)],
     label: &str,
@@ -85,7 +89,7 @@ pub(super) async fn post_form_json<T: serde::de::DeserializeOwned>(
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
         throttle.wait().await;
-        match post_once(http, path, gnmkdm, referer_path, form, label).await {
+        match post_once(http, path, gnmkdm, do_type, referer_path, form, label).await {
             Ok(v) => return Ok(v),
             Err(e) => {
                 let msg = format!("{e:#}");
@@ -99,15 +103,20 @@ pub(super) async fn post_form_json<T: serde::de::DeserializeOwned>(
     Err(last_err.expect("至少一次尝试的错误"))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn post_once<T: serde::de::DeserializeOwned>(
     http: &Client,
     path: &str,
     gnmkdm: &str,
+    do_type: Option<&str>,
     referer_path: &str,
     form: &[(&str, String)],
     label: &str,
 ) -> Result<T> {
-    let url = format!("{BASE}{path}?doType=query&gnmkdm={gnmkdm}");
+    let url = match do_type {
+        Some(dt) => format!("{BASE}{path}?doType={dt}&gnmkdm={gnmkdm}"),
+        None => format!("{BASE}{path}?gnmkdm={gnmkdm}"),
+    };
     let referer = format!("{BASE}{referer_path}?gnmkdm={gnmkdm}&layout=default");
     let resp = http
         .post(&url)

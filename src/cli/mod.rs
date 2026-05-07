@@ -7,8 +7,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
 mod canvas;
+mod elec;
 mod jwbmessage;
 mod jwc;
+mod services;
 mod shuiyuan;
 mod shuiyuan_args;
 
@@ -79,6 +81,18 @@ enum Commands {
         #[command(subcommand)]
         sub: jwc::JwcSub,
     },
+
+    /// 办事大厅（my.sjtu.edu.cn）：流程待办列表（MVP 仅 `pending`，只读）。
+    Services {
+        #[command(subcommand)]
+        sub: services::ServicesSub,
+    },
+
+    /// 生活服务 — 宿舍电费（elec.sjtu.edu.cn）：余额 / 月度 / 日明细（MVP 三件套，只读）。
+    Elec {
+        #[command(subcommand)]
+        sub: elec::ElecSub,
+    },
 }
 
 /// 供 clap 解析的 `--browser` 枚举。只为了 derive `ValueEnum`。
@@ -121,6 +135,8 @@ pub async fn run() -> Result<()> {
         Commands::Messages { sub } => jwbmessage::dispatch(sub, fmt).await,
         Commands::Canvas { sub } => canvas::dispatch(sub, fmt).await,
         Commands::Jwc { sub } => jwc::dispatch(sub, fmt).await,
+        Commands::Services { sub } => services::dispatch(sub, fmt).await,
+        Commands::Elec { sub } => elec::dispatch(sub, fmt).await,
     }
 }
 
