@@ -11,6 +11,7 @@ use reqwest::Client as HttpClient;
 
 use super::http::post_json;
 use super::models::{ApiEnvelope, FindListResponse, GetTokenResponse};
+use super::models_video::GetVideoInfosResponse;
 use super::throttle::{Throttle, MIN_INTERVAL};
 
 /// mockito 专用 HTTP client：手动 `no_proxy()`（系统代理会把 127.0.0.1 mock 服务地址
@@ -188,6 +189,40 @@ async fn post_json_returns_parsed_response_via_mockito() {
     .unwrap();
     assert!(resp.is_business_ok());
     assert_eq!(resp.data.unwrap().total, 0);
+}
+
+#[test]
+fn parse_get_vod_video_infos_minimal() {
+    // 精简自调研 §6：仅核心字段；userCode/userName/lastWatchTime 等 PII **不在 fixture**
+    // ——即便后端真返了，VideoInfoData struct 也不会反序列化（PII 不入 struct）。
+    let fixture = r#"{
+      "code":"0","success":true,"status":200,"message":null,"timestamp":1746000000002,
+      "data":{
+        "id": 12345,
+        "videPlayTime": 5840,
+        "rtmpUrlHdv": "https://live.sjtu.edu.cn/vod/00000000000/00000000001/0_X-Y.mp4?key=ABCD",
+        "videoPlayResponseVoList": [
+          {"rtmpUrlHdv":"https://live.sjtu.edu.cn/vod/00000000000/00000000001/0_X-Y.mp4?key=ABCD","cdviChannelNum":0},
+          {"rtmpUrlHdv":"https://live.sjtu.edu.cn/vod/00000000000/00000000002/1_X-Y.mp4?key=EFGH","cdviChannelNum":1}
+        ],
+        "videName":"日语语言学专题研讨2(第01讲)",
+        "subjCode":"FL3426",
+        "userCode":"08452"
+      }
+    }"#;
+    let env: GetVideoInfosResponse = serde_json::from_str(fixture).unwrap();
+    assert!(env.is_business_ok());
+    let d = env.data.unwrap();
+    assert_eq!(d.vide_play_time, Some(5840));
+    assert_eq!(d.vide_name.as_deref(), Some("日语语言学专题研讨2(第01讲)"));
+    assert_eq!(d.video_play_response_vo_list.len(), 2);
+    assert_eq!(d.video_play_response_vo_list[0].cdvi_channel_num, Some(0));
+    assert!(d.video_play_response_vo_list[0]
+        .rtmp_url_hdv
+        .as_deref()
+        .unwrap()
+        .ends_with("key=ABCD"));
+    assert_eq!(d.video_play_response_vo_list[1].cdvi_channel_num, Some(1));
 }
 
 #[tokio::test]

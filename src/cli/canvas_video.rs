@@ -1,9 +1,13 @@
 //! `sjtu canvas-video <sub>` 的 clap 枚举 + 派发。
 //!
-//! 命令清单（CP-V1 仅 `list`；CP-V3/V4 才追加 `download`）：
+//! 命令清单：
 //! - `list <course-id> [--tool-id 8329] [--with-identity] [--include-unaudited]`
+//! - `download <course-id> --lecture N --to <dir> [--channel 0] [--concurrency 8]
+//!     [--tool-id 8329] [--with-identity]`（CP-V3）
 //!
-//! 与现有 `sjtu canvas` 命令树独立（PAT 鉴权 vs LTI 鉴权完全两条链）。
+//! 与 `sjtu canvas`（PAT 鉴权）独立两条链。
+
+use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -33,6 +37,36 @@ pub enum CanvasVideoSub {
         #[arg(long)]
         include_unaudited: bool,
     },
+
+    /// 下载某门课的某讲到本地（mp4，Range 分片并发）。
+    Download {
+        /// Canvas 数字课程 ID。
+        course_id: u64,
+
+        /// 讲序号（1-based，按 course_begin_time 升序后的位置；与 `list` 输出的 `seq` 对齐）。
+        #[arg(long)]
+        lecture: u32,
+
+        /// 输出目录（不存在自动创建）。
+        #[arg(long)]
+        to: PathBuf,
+
+        /// 机位：0=老师正面 / 1=PPT。默认 0（与 SPA 一致）。
+        #[arg(long, default_value_t = 0)]
+        channel: i32,
+
+        /// 单文件分片并发数（< 2 走单段流式）。SJTU CDN 实测 8 路易触发 504，默认 4 较稳。
+        #[arg(long, default_value_t = 4)]
+        concurrency: usize,
+
+        /// LTI 工具 ID。默认 `8329`。
+        #[arg(long, default_value_t = 8329)]
+        tool_id: u64,
+
+        /// 输出含 PII 的内部字段（mp4 URL 全文 / videoId 全文）。
+        #[arg(long)]
+        with_identity: bool,
+    },
 }
 
 /// 派发 `sjtu canvas-video <sub>` 到 `commands::canvas_video` 的 handler。
@@ -44,5 +78,26 @@ pub async fn dispatch(sub: CanvasVideoSub, fmt: Option<OutputFormat>) -> Result<
             with_identity,
             include_unaudited,
         } => cv_cmds::cmd_list(course_id, tool_id, with_identity, include_unaudited, fmt).await,
+        CanvasVideoSub::Download {
+            course_id,
+            lecture,
+            to,
+            channel,
+            concurrency,
+            tool_id,
+            with_identity,
+        } => {
+            cv_cmds::cmd_download(
+                course_id,
+                tool_id,
+                lecture,
+                to,
+                channel,
+                concurrency,
+                with_identity,
+                fmt,
+            )
+            .await
+        }
     }
 }

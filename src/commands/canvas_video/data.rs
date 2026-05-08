@@ -51,3 +51,29 @@ pub(super) struct LectureEntry {
     /// 视频审核状态（3=已审通过）。CLI 默认过滤 `==3`，传 `--include-unaudited` 才返非 3。
     pub vide_audit_status: Option<i32>,
 }
+
+/// `sjtu canvas-video download` 的 data 形状。文件路径绝对化；mp4 URL 含时效签名（仅
+/// `--with-identity` 时回显，否则抹）。
+#[derive(Debug, Serialize)]
+pub(super) struct DownloadData {
+    pub course_id: u64,
+    pub tool_id: u64,
+    /// 1-based 讲序号（用户输入回显）。
+    pub lecture: u32,
+    /// 选定的 `cdviChannelNum`（0 老师 / 1 PPT）。
+    pub channel: i32,
+    /// 视频名（`<课程名>(第N讲)`）。可能 None（极少见）。
+    pub video_name: Option<String>,
+    /// `videoId`（base64 含 `=`）：默认前 12 字符 + `***`，with_identity 才出全文。
+    pub video_id_redacted: String,
+    /// 视频时长（秒），来自 `videPlayTime`。
+    pub duration_secs: Option<i64>,
+    /// 落盘路径（绝对路径）。
+    pub file_path: String,
+    /// 实际写入字节数。
+    pub bytes: u64,
+    /// 总耗时（毫秒）。
+    pub elapsed_ms: u128,
+    /// mp4 URL：默认抹掉（含 `key=` 时效签名 + 服务器内部路径），with_identity 才出全文。
+    pub mp4_url_redacted: String,
+}

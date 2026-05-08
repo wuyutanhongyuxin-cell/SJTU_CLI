@@ -7,6 +7,8 @@
 //! 端点契约见 tasks/canvas_video_investigation.md。
 
 mod data;
+mod download_handler;
 mod handlers;
 
+pub use download_handler::cmd_download;
 pub use handlers::cmd_list;

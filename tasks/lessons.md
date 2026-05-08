@@ -15,6 +15,27 @@
 
 ---
 
+## 2026-05-08 — SJTU 教学 CDN 多段并发 Range 下载触发 504：8 路过载，4 路才稳（CP-V3 真机）
+
+**触发情境**：CP-V3 实装 mp4 Range 分片并发下载（`apps/canvas_video/download.rs`），按调研 §7 "MVP 8 段并发"建议默认 `--concurrency 8`。真机 800MB mp4 第一跑：段 0/1 飞快下完，段 2-7 全部返 `504 Gateway Timeout`，linear backoff 500ms × 3 次重试都被拒，整体失败。
+
+**错误模式**：
+1. **盲信调研建议值**：调研报告写"MVP N=8"是参照 SJTU-Canvas-Helper（GUI 工具，user 主动盯）。CLI 自动化场景下 CDN 限流后 user 不在场及时退避，8 路同时打 = 7+ 段同时被拒
+2. **backoff 太短**：500ms / 1000ms 梯度对 5xx 完全不够 —— 504 通常意味着上游 origin 处理慢（不是 transient 网络抖动），毫秒级重试只是再戳一次刚被打回来的同一座墙
+3. **没分清 4xx vs 5xx**：网络重试策略用 `is_retriable` 一刀切（含 5xx），但 5xx 里 502/504（gateway）和 503（service unavailable）都是上游需要更长喘息，跟 timeout/connection reset 这种瞬态错严格不同档次
+
+**正确做法**（已落入 CP-V3 实装）：
+1. **CLI 默认值往保守调**：`--concurrency` 默认 4 而非 8。调研 MVP 假设值放 doc，CLI default 走"对方服务器友好"
+2. **梯度 backoff 而非 linear**：`[0, 3000, 10000, 25000]ms` 四档，给 CDN 起码 30+s 总缓冲。最末段单次 attempt 可能慢，但能救活整个下载（实测段 3 attempt 2 救活）
+3. **看末段是否单点慢**：真机观察段 0/1/2 一次过、段 3（最末段 630M-840M）反复 504。可能是 CDN 对文件 trailer / EOF 区域有特殊处理或源站慢盘读。CP-V4 批量场景如果还遇到，可以考虑"反序下载"或"末段单独单线程"
+
+**规则**：
+- **下载类调研报告里的并发数 / chunk 大小，CLI default 直接砍半**：调研用 GUI 工具（用户在场）的经验值，CLI 走保守。**Why**：CLI 自动化失败时用户不一定立刻看到，对方限流陷阱里要友好退避。**How to apply**：任何 CDN / 大文件 / 批量并发任务，看到调研建议 N，CLI default 设 N/2 起步
+- **5xx 重试 backoff 梯度走"秒级"不是"毫秒级"**：504/502/503 是上游需要喘息，不是重发就好。**Why**：网络层瞬态错（TCP reset / timeout）毫秒级 retry 有意义，gateway/upstream 5xx 毫秒级 retry 等于戳同一道墙。**How to apply**：retry backoff 至少 `[0, 3s, 10s, 25s]` 梯度，总缓冲 ≥ 30s
+- **保 .part 临时文件原子合并**：分片成功后写 `<dest>.tmp` 再 `rename` → `<dest>`；中途失败保 `.part{i}`（File::create 已 truncate，retry 自然覆盖）。**Why**：部分写文件直接落最终路径会让"文件存在"和"文件完整"语义混淆；调用者看到 `dest` 文件就以为下完。**How to apply**：所有大文件下载 / 数据导出，必须 `tmp`+`rename` 原子化，绝不直接写最终路径
+
+---
+
 ## 2026-05-08 — worktree 隔离 subagent 看到的是 base commit，不是主分支 HEAD（CP-V1 合并坑）
 
 **触发情境**：CP-V1 编码 delegate 给 subagent，开 `isolation: worktree`。subagent 跑完四关全绿交付，但合并回主仓库前 review 发现 worktree 的 `src/cli/mod.rs` 把 `mod elec` / `mod jwc` / `mod services` 三个声明 + Commands enum 三个 variant + dispatch 三个 arm **全删了**。差点直接 `cp` 整文件回主仓库覆盖前面 793915c + 947ce6f 两个 commit 的实装。

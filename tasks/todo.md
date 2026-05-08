@@ -280,9 +280,14 @@
   - **修复一行**：`src/apps/canvas_video/auth.rs:48` 把 `cas_target` 从 LTI launch URL 改为 `https://oc.sjtu.edu.cn/login/openid_connect`（即 `/login/canvas` 静态页里 jAccount 按钮的 `<a href>`）。先前误判"SSO 触发要点击按钮"，实测按钮就是普通 `<a>` 超链接，纯 GET 触发 OIDC 302 链，cas_login 既有逻辑直接能跟。
   - **调研方法**：chrome-devtools MCP 协议 `Network.enable` 持续超时 → 改纯 `curl` 抓 `/login/canvas` HTML 静态页 + grep 出 `<a href="/login/openid_connect">` → 单跳 `curl --max-redirs 0 /login/openid_connect` 验证 302 → `jaccount.sjtu.edu.cn/oauth2/authorize?client_id=lACSIkmjF7lRHNKaVrIp&...`（OAuth 2.0 / OIDC Authorization Code Flow，含 JWT state）。**完全只读**，零状态变更风险。
   - **性能**：cas 首跑 10528ms（OIDC 三跳 + cookie collect）→ 缓存命中 7ms（**1500× 加速**）。Chrome LTI launch 仍需 ~30s（启动 Chrome + navigate + 等 v.sjtu 落地），CP-V3 下载阶段不再触发 launch（Bootstrap 在内存复用）。
-- [ ] **CP-V3 单讲下载**：`sjtu canvas videos download 88168 --lecture 1 --to ./tmp` 单讲完整 mp4 落盘（Range 分片并发 8，Referer: courses.sjtu.edu.cn），文件可播放
-- [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas videos download 88168 --audio-only` 16 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg）
-- [ ] mockito 端单测（不打真服务器）
+- [x] **CP-V3 单讲下载** ✅ 2026-05-08：`sjtu canvas-video download 88168 --lecture 1 --to ./tmp/v3 --json` 单讲 800MB 完整 mp4 落盘，envelope `ok=true`，PII（video_id / mp4_url）按默认正确脱敏。
+  - **实装**：`apps/canvas_video/download.rs`（187 行，Range 分片并发 + 0/3s/10s/25s 梯度 backoff + part 合并原子 rename）+ `apps/canvas_video/api.rs::get_video_info`（POST `getVodVideoInfos` urlencoded）+ `apps/canvas_video/api_form.rs`（form POST helper，与 post_json 同构）+ `apps/canvas_video/models_video.rs`（VideoInfoData 仅 4 字段，PII 不入 struct）+ `commands/canvas_video/download_handler.rs`（cmd_download + safe_filename 处理 Windows 禁字符）+ `cli/canvas_video.rs::Download` 子命令。**所有文件 ≤ 200 行**（最大 download.rs 187 / download_handler.rs 127）。
+  - **依赖增量**：`Cargo.toml` tokio features 加 `fs` + `io-util`（异步 read/write/rename/mkdir 必需，runtime feature 补全非新 crate）。
+  - **CDN 504 教训**：默认 8 段并发对 SJTU 教学 CDN 过载（多段同时返 504 Gateway Timeout，3 次 retry 全军覆没）。降默认到 **4 段** + retry backoff 改梯度 `[0, 3000, 10000, 25000]ms` 才稳。真机第二次跑：段 0/1/2 直接成功，段 3（最末段）触发 504，靠 25s backoff 后 attempt 2 写满 210MB 救活。
+  - **真机指标**：probe size=840,104,214B（800MB） / partial=true（CDN 支持 Range）；总 800,483ms ≈ 13min20s（LTI launch 30s + cas 缓存命中 / 段 504 backoff 链 ~5min / 真正下载 ~7min）；段 0/1/2 各 210MB 一次过，段 3 attempt 2 救活；part0-3 自动合并 + 原子 rename + 删 part，目录无残骸。
+  - **PII 脱敏**：`video_id_redacted="2WsP4p8BsYbr***"`（前 12 + ***），`mp4_url_redacted="https://live.sjtu.edu.cn/...***"`（仅保 scheme+host），文件名"日语语言学专题研讨（2）(第1讲)" 中文括号合法保留 / 西文括号合法保留。
+- [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas-video download 88168 --audio-only` 18 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg），边下边重发 `getVodVideoInfos` 防 mp4 URL `key=` 1-3h 过期
+- [ ] mockito 端单测（不打真服务器）—— 已含 7 个（含 V3 `parse_get_vod_video_infos_minimal`），`download::*` 的 Range 分片单测留 CP-V4
 
 **留白**：
 - 双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2

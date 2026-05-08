@@ -40,7 +40,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- S2 CAS 子系统跳转 ---
 reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls", "gzip"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+# `fs` + `io-util`：CP-V3 mp4 Range 分片下载需要异步 read/write/rename/mkdir。
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
 url = "2"
 
 # --- S3e 生活服务（电费）金额硬约束：禁 f64，所有金额 / 度数走 Decimal ---
@@ -48,4 +49,4 @@ rust_decimal = { version = "1", features = ["serde"] }
 
 [dev-dependencies]
 mockito = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "fs", "io-util"] }

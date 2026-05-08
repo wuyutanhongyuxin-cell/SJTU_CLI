@@ -10,13 +10,16 @@
 //! - CP-V2..V4：list 字段脱敏 / 单讲下载 / 批量 + ffmpeg（未做）
 
 mod api;
+mod api_form;
 pub mod auth;
 mod auth_chrome;
+pub mod download;
 mod http;
 mod models;
+mod models_video;
 #[cfg(test)]
 mod tests_parse;
 mod throttle;
 
-pub use api::Client;
+pub use api::{Client, VideoFetch};
 pub use models::{Bootstrap, LectureVideo};
