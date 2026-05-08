@@ -15,6 +15,9 @@ sub_sessions/
 # Claude Code 工作区（worktrees / 临时元数据；含 git 内部结构，绝不入仓库）
 .claude/
 
+# 调研临时产物（HTML 抓取 / 网络抓包 / 截图等；含潜在 PII，绝不入仓库）
+tmp/
+
 # 编辑器 / OS
 .idea/
 .vscode/

@@ -1,9 +1,9 @@
 //! LTI 1.3 launch + tokenId → Bootstrap（HS512 token + courId + ltiCourseId）。
 //!
 //! 流程（详见 tasks/canvas_video_investigation.md §2.5 第 4 点）：
-//! 1. `cas_login("canvas_oc", external_tools URL)`：让 oc.sjtu 域签发认证 session cookie。
-//!    target 用 LTI launch URL —— 会 302→jaccount→oauth2_callback→external_tools form_post，
-//!    前 4 跳给我们种好 oc 认证 cookie。用 `/login/canvas` 不行：返 200 HTML 静态页。
+//! 1. `cas_login("canvas_oc", "https://oc.sjtu.edu.cn/login/openid_connect")`：oc 自己的 OIDC 入口
+//!    （/login/canvas 页上 jAccount 按钮的 href），纯 302 链：openid_connect → jaccount/oauth2/authorize
+//!    → oc/login/oauth2/callback → 落定。LTI launch URL 当 target 不行：未登录返 /login/canvas 200 HTML 等点按钮。
 //!    name 用 `canvas_oc` 与 PAT 路径的 `canvas_token.txt` 区分。
 //! 2. `auth_chrome::run_chrome_launch`：启 headless Chrome → 注入 oc 域 sub_session cookie →
 //!    导航 oc.sjtu external_tools → 轮询拿 tokenId + 抓 v.sjtu cookie
@@ -45,9 +45,8 @@ use crate::error::SjtuCliError;
 /// - `UpstreamError` —— Chrome 启动失败 / 落地超时 / tokenId 缺失 / API 业务码非 0
 pub async fn lti_launch(course_id: u64, lti_tool_id: u64) -> Result<Bootstrap> {
     // 1) cas_login 给 oc.sjtu 签认证 session（缓存 sub_sessions/canvas_oc.json）。
-    //    target 用 LTI launch URL 触发完整 SSO 链；form_post 那跳停下时 cookie 已就绪。
-    let cas_target = format!("https://oc.sjtu.edu.cn/courses/{course_id}/external_tools/{lti_tool_id}?display=borderless");
-    let cas = cas_login("canvas_oc", &cas_target).await?;
+    //    target 走 oc 的 OIDC 入口（/login/canvas 页 jAccount 按钮的 href，2026-05-08 抓 HTML 验证）。
+    let cas = cas_login("canvas_oc", "https://oc.sjtu.edu.cn/login/openid_connect").await?;
     debug!(
         from_cache = cas.from_cache,
         cookie_count = cas.session.cookies.len(),

@@ -47,12 +47,22 @@
    - B：headless chrome 在 navigate 后用 evaluate_script 定位按钮节点 click()，等下一波 navigate 完成
 4. **域 cookie 兜底**（已落 auth_chrome.rs build_cookie_params）：cas 模块 `follow_redirect_chain` 收 Set-Cookie 时未按 RFC 6265 §5.3 默认填 request URI host —— 落盘 cookie domain 字段常为空，注入到 chrome 时被过滤。S2 修通用 bug 后此 fallback 可删
 
-**规则**：
-- ✅ SP 调研：incognito 浏览器 + chrome-devtools MCP 抓未认证 SSO 真实跳转链；前 5 跳必须见 jaccount 域，否则 SSO 是 button/JS-driven
-- ✅ button-driven SSO 实装路线选 A（找直跳 URL）优先于 B（chrome 点击）—— 前者纯 reqwest，后者依赖 headless 稳定性
-- ❌ 不要假设所有 SJTU SP 都用纯 302 SSO；jwbmessage / elec / jwc/ZF 是 302，oc.sjtu (Canvas) 不是
+**修复结论 (同日 chrome-devtools MCP 协议超时 → 改纯 curl 调研推翻原假设)**：
+"button-driven SSO" 假设错了。`/login/canvas` 静态页里 `<a href="/login/openid_connect"><div id="jaccount">…</div></a>` —— **"Sign in with JAccount"按钮其实是普通 `<a>` 超链接**，点击 = 普通 GET，不是 form-submit、不是 JS。`/login/openid_connect` 直接 302 → `jaccount.sjtu.edu.cn/oauth2/authorize?client_id=lACSIkmjF7lRHNKaVrIp&...`（OIDC Authorization Code Flow），cas_login 既有 302 跟链逻辑直接能跑通。
+
+oc.sjtu (Canvas) **与 N305005 ZF 套路完全同构** —— 见下面 "## 2026-04-26 — i.sjtu CAS 入口是 `/jaccountlogin`" 那条：都是"SP 内部 login 页 HTML 里有 jAccount 锚点，那个锚点的 href 才是真 CAS 入口"。ZF: `<a href="/jaccountlogin" id="authJwglxtLoginURL">`；Canvas: `<a href="/login/openid_connect"><div id="jaccount">`。CP-V1 设计 `cas_target` 时已经知道 ZF 这条规则，但偷懒拍了个 LTI launch URL 就上线了，没去查 oc 自己的 login 页 —— **同一类错误第二次犯**。
+
+修复就一行：`cas_target = "https://oc.sjtu.edu.cn/login/openid_connect"`。CP-V2 真机 18 讲返回正常，cas 首跑 10.5s → 缓存命中 7ms。
+
+**规则（替代原"button-driven"路线）**：
+- ✅ **每个未知 SP 调研第一步**：`curl` 它的根页 / login 页 HTML，`grep -i "jaccount|oauth|openid|saml" | grep '<a '` 找带 jAccount 字样的 `<a href>` —— 那个 href 就是 CAS 入口候选。10 秒搞定，比 chrome-devtools MCP 稳得多
+- ✅ 候选 URL 拿到后 `curl --max-redirs 0 -i` 验单跳：返 302 + Location 含 `jaccount.sjtu.edu.cn/oauth2/authorize` = 命中 OIDC 入口；返 200 HTML = 还是个静态页，再往里找一层
+- ✅ chrome-devtools MCP 不可用时（如本次 `Network.enable` timeout），纯 curl 完全够用 —— 调研只读探测不依赖浏览器
+- ❌ 不要假设 SP 把 LTI launch / 深页直接当 SSO 触发器 —— 大部分 SP 把"未登录 → 自家 login 页 200 HTML"作为入口，要从 HTML 里找锚点
 - ❌ 不要拿"用户已登录会话抓的 network"当 SSO 调研依据 —— 那只验证下游 API，跳过了入口
-- ❌ chrome navigate 后不要假设 SSO 自动跑完；headless 默认不会自动点击页面按钮
+
+**Why 写这条**：CP-V1 设计时把"ZF 入口要找 HTML 锚点"当成 ZF 独有特性，实际是 SJTU 多个 SP 共用模式。先写规则再实装，能省一次 30s timeout + 一次 commit 回滚。
+**How to apply**：以后接入新 SP（library / canvas / oc / 任何带"内部登录方式选择页"的系统），先 curl + grep 锚点，再写 `cas_target`。
 
 ---
 
