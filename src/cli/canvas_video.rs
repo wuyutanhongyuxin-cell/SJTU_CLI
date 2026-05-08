@@ -51,9 +51,13 @@ pub enum CanvasVideoSub {
         #[arg(long)]
         to: PathBuf,
 
-        /// 机位：0=老师正面 / 1=PPT。默认 0（与 SPA 一致）。
-        #[arg(long, default_value_t = 0)]
+        /// 机位：0=老师正面 / 1=PPT。默认 0（与 SPA 一致）。与 `--all-channels` 互斥。
+        #[arg(long, default_value_t = 0, conflicts_with = "all_channels")]
         channel: i32,
+
+        /// 双机位都下载（顺序 channel 0 → 1，落两个独立 mp4）。与 `--channel` 互斥。
+        #[arg(long, default_value_t = false)]
+        all_channels: bool,
 
         /// 单文件分片并发数（< 2 走单段流式）。CP-V3.1 后每段独立 TCP（HTTP/1.1 + 关池），
         /// 8 路稳定，吞吐 ~6-10 MB/s（aria2 -x 16 等效路径）。
@@ -84,21 +88,35 @@ pub async fn dispatch(sub: CanvasVideoSub, fmt: Option<OutputFormat>) -> Result<
             lecture,
             to,
             channel,
+            all_channels,
             concurrency,
             tool_id,
             with_identity,
         } => {
-            cv_cmds::cmd_download(
-                course_id,
-                tool_id,
-                lecture,
-                to,
-                channel,
-                concurrency,
-                with_identity,
-                fmt,
-            )
-            .await
+            if all_channels {
+                cv_cmds::cmd_download_all(
+                    course_id,
+                    tool_id,
+                    lecture,
+                    to,
+                    concurrency,
+                    with_identity,
+                    fmt,
+                )
+                .await
+            } else {
+                cv_cmds::cmd_download(
+                    course_id,
+                    tool_id,
+                    lecture,
+                    to,
+                    channel,
+                    concurrency,
+                    with_identity,
+                    fmt,
+                )
+                .await
+            }
         }
     }
 }

@@ -3,6 +3,8 @@
 //! 流程：connect → findVodVideoList → 过滤已审 → course_begin_time 升序 → 1-based seq
 //! → PII 字段按 `--with-identity` 展开 / 抹 → Envelope 输出。
 
+use std::path::Path;
+
 use anyhow::Result;
 
 use crate::apps::canvas_video::{Client, LectureVideo};
@@ -86,5 +88,43 @@ pub(super) fn redact_or_full(s: &str, with_identity: bool) -> String {
         "***".to_string()
     } else {
         format!("{}***", &s[..12])
+    }
+}
+
+/// Windows-safe 文件名：禁字符 `< > : " / \ | ? *` + 控制字符 → `_`；剥首尾空格点号下划线。
+pub(super) fn safe_filename(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| match c {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed: String = s
+        .trim_matches(|c: char| matches!(c, ' ' | '.' | '_'))
+        .into();
+    if trimmed.is_empty() {
+        "video".into()
+    } else {
+        trimmed
+    }
+}
+
+/// 路径绝对化失败回退到原 `to_string_lossy`（一般出现在文件还未落盘的场景）。
+pub(super) fn absolutize(p: &Path) -> String {
+    std::fs::canonicalize(p)
+        .map(|abs| abs.to_string_lossy().to_string())
+        .unwrap_or_else(|_| p.to_string_lossy().to_string())
+}
+
+/// mp4 URL 默认抹（含 `key=` 时效签名）：仅保 scheme + host。`with_identity=true` 直出全文。
+pub(super) fn redact_url(url: &str, with_identity: bool) -> String {
+    if with_identity {
+        return url.to_string();
+    }
+    match url::Url::parse(url) {
+        Ok(u) => format!("{}://{}/...***", u.scheme(), u.host_str().unwrap_or("?")),
+        Err(_) => "***".into(),
     }
 }

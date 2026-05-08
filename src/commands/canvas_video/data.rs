@@ -77,3 +77,31 @@ pub(super) struct DownloadData {
     /// mp4 URL：默认抹掉（含 `key=` 时效签名 + 服务器内部路径），with_identity 才出全文。
     pub mp4_url_redacted: String,
 }
+
+/// `sjtu canvas-video download --all-channels` 的 data 形状：双机位顺序下载，
+/// 共享课程级元数据，每路一条 `ChannelOutput`。
+#[derive(Debug, Serialize)]
+pub(super) struct DownloadAllData {
+    pub course_id: u64,
+    pub tool_id: u64,
+    pub lecture: u32,
+    pub video_name: Option<String>,
+    pub video_id_redacted: String,
+    pub duration_secs: Option<i64>,
+    /// 每个机位一条记录（顺序下载，channel 0 在前 / channel 1 在后）。
+    pub channels: Vec<ChannelOutput>,
+    /// 两路总字节。
+    pub total_bytes: u64,
+    /// 两路总耗时（毫秒）。
+    pub total_elapsed_ms: u128,
+}
+
+/// `--all-channels` 模式下每路的输出。
+#[derive(Debug, Serialize)]
+pub(super) struct ChannelOutput {
+    pub channel: i32,
+    pub file_path: String,
+    pub bytes: u64,
+    pub elapsed_ms: u128,
+    pub mp4_url_redacted: String,
+}

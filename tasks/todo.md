@@ -288,11 +288,12 @@
   - **PII 脱敏**：`video_id_redacted="2WsP4p8BsYbr***"`（前 12 + ***），`mp4_url_redacted="https://live.sjtu.edu.cn/...***"`（仅保 scheme+host），文件名"日语语言学专题研讨（2）(第1讲)" 中文括号合法保留 / 西文括号合法保留。
 - [x] **CP-V3.1 加速：每段独立 TCP** ✅ 2026-05-08：根因 reqwest 默认 ALPN 协商 H2，N 段在底层多路复用一条 TCP 被 SJTU CDN 按 per-conn 限速 ~1MB/s（reqwest #976 + uv #17204 同坑）。`Client::builder().http1_only().pool_max_idle_per_host(0).tcp_nodelay(true)` 强制每段独立 TCP，对照 prcwcy/sjtu-canvas-video-download 的 aria2 -x 16 实证路径。CLI `--concurrency` 默认 4 → 8。段 i 内部 sleep i*50ms 错峰防 burst 触发 CDN 限流。**真机指标**：lecture 1 同条件重测 → 800,483ms → 201,946ms（**3.97× 提速**，1.05 → 4.16 MB/s）。byte-identical 对比 V3 产物（840,104,214B）。download.rs 200 行整（CLAUDE.md 红线），无新依赖。
   - **HLS 路线证伪**：调研文档显示 `playTypeHls=true` 是误导参数名，响应只返 `rtmpUrlHdv`（mp4 直链），无 m3u8 字段；方案 3（HLS 多段并发 + ffmpeg 拼接）路径不可行，V5 不走该方向。
+- [x] **CP-V3.2 双机位下载 `--all-channels`** ✅ 2026-05-09：用户实测 V3.1 ch0 只有教师机位，看不到 PPT。CLI 加 `--all-channels`（与 `--channel` clap `conflicts_with` 互斥），handler 走 `cmd_download_all` 顺序跑两路（channel 0 → 1），envelope 改 `channels: [ChannelOutput; 2]` + 共享 `course_id / lecture / video_name / video_id_redacted / duration_secs` + `total_bytes / total_elapsed_ms`。重构：抽 `resolve_target` + `download_one_channel` helpers，三个 utils（`safe_filename` / `absolutize` / `redact_url`）下沉到 `handlers.rs::pub(super)`。**真机**：lecture 1 双机位 → 1.18GB / 280,360ms（ch0 800MB/143s = 5.87 MB/s，ch1 411MB/91s = 4.73 MB/s，含 LTI launch ~30s）。文件 `_ch0.mp4` + `_ch1.mp4` 落盘 `tmp/v3-all/`。`download_handler.rs` 171 行 / `handlers.rs` 130 行 / `data.rs` 107 行 全部 ≤200 红线，零新依赖。
 - [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas-video download 88168 --audio-only` 18 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg），边下边重发 `getVodVideoInfos` 防 mp4 URL `key=` 1-3h 过期
 - [ ] mockito 端单测（不打真服务器）—— 已含 7 个（含 V3 `parse_get_vod_video_infos_minimal`），`download::*` 的 Range 分片单测留 CP-V4
 
 **留白**：
-- 双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2
+- ~~双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2~~ ✅ V3.2 已实装（顺序跑两路 + envelope 含 `channels` array）
 - token 时效未现场抓多次确认；CLI 不缓存，每次完整 launch 重新拿（成本 ~3-10s 可接受，单课程一学期下载是一次性场景）
 - 字幕提取：`videSrtUrl` 实测 null，有字幕的课程未现场验
 - ffmpeg 检测：CLI 启动时不预检（启动慢），仅 `--audio-only` 路径检测，缺则报友好错指引装

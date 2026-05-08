@@ -10,5 +10,5 @@ mod data;
 mod download_handler;
 mod handlers;
 
-pub use download_handler::cmd_download;
+pub use download_handler::{cmd_download, cmd_download_all};
 pub use handlers::cmd_list;
