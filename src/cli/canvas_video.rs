@@ -55,8 +55,9 @@ pub enum CanvasVideoSub {
         #[arg(long, default_value_t = 0)]
         channel: i32,
 
-        /// 单文件分片并发数（< 2 走单段流式）。SJTU CDN 实测 8 路易触发 504，默认 4 较稳。
-        #[arg(long, default_value_t = 4)]
+        /// 单文件分片并发数（< 2 走单段流式）。CP-V3.1 后每段独立 TCP（HTTP/1.1 + 关池），
+        /// 8 路稳定，吞吐 ~6-10 MB/s（aria2 -x 16 等效路径）。
+        #[arg(long, default_value_t = 8)]
         concurrency: usize,
 
         /// LTI 工具 ID。默认 `8329`。

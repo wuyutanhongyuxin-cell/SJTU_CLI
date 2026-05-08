@@ -286,6 +286,8 @@
   - **CDN 504 教训**：默认 8 段并发对 SJTU 教学 CDN 过载（多段同时返 504 Gateway Timeout，3 次 retry 全军覆没）。降默认到 **4 段** + retry backoff 改梯度 `[0, 3000, 10000, 25000]ms` 才稳。真机第二次跑：段 0/1/2 直接成功，段 3（最末段）触发 504，靠 25s backoff 后 attempt 2 写满 210MB 救活。
   - **真机指标**：probe size=840,104,214B（800MB） / partial=true（CDN 支持 Range）；总 800,483ms ≈ 13min20s（LTI launch 30s + cas 缓存命中 / 段 504 backoff 链 ~5min / 真正下载 ~7min）；段 0/1/2 各 210MB 一次过，段 3 attempt 2 救活；part0-3 自动合并 + 原子 rename + 删 part，目录无残骸。
   - **PII 脱敏**：`video_id_redacted="2WsP4p8BsYbr***"`（前 12 + ***），`mp4_url_redacted="https://live.sjtu.edu.cn/...***"`（仅保 scheme+host），文件名"日语语言学专题研讨（2）(第1讲)" 中文括号合法保留 / 西文括号合法保留。
+- [x] **CP-V3.1 加速：每段独立 TCP** ✅ 2026-05-08：根因 reqwest 默认 ALPN 协商 H2，N 段在底层多路复用一条 TCP 被 SJTU CDN 按 per-conn 限速 ~1MB/s（reqwest #976 + uv #17204 同坑）。`Client::builder().http1_only().pool_max_idle_per_host(0).tcp_nodelay(true)` 强制每段独立 TCP，对照 prcwcy/sjtu-canvas-video-download 的 aria2 -x 16 实证路径。CLI `--concurrency` 默认 4 → 8。段 i 内部 sleep i*50ms 错峰防 burst 触发 CDN 限流。**真机指标**：lecture 1 同条件重测 → 800,483ms → 201,946ms（**3.97× 提速**，1.05 → 4.16 MB/s）。byte-identical 对比 V3 产物（840,104,214B）。download.rs 200 行整（CLAUDE.md 红线），无新依赖。
+  - **HLS 路线证伪**：调研文档显示 `playTypeHls=true` 是误导参数名，响应只返 `rtmpUrlHdv`（mp4 直链），无 m3u8 字段；方案 3（HLS 多段并发 + ffmpeg 拼接）路径不可行，V5 不走该方向。
 - [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas-video download 88168 --audio-only` 18 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg），边下边重发 `getVodVideoInfos` 防 mp4 URL `key=` 1-3h 过期
 - [ ] mockito 端单测（不打真服务器）—— 已含 7 个（含 V3 `parse_get_vod_video_infos_minimal`），`download::*` 的 Range 分片单测留 CP-V4
 

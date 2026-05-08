@@ -1,9 +1,9 @@
-//! mp4 直链 Range 分片并发下载。
+//! mp4 直链 Range 分片并发下载。`GET Range: bytes=0-0` 探测 size，分片合并到 `<dest>.tmp`
+//! 再原子 `rename`。段失败梯度 backoff [0, 3s, 10s, 25s]，mp4 URL `key=` 1-3h 内有效。
 //!
-//! `GET Range: bytes=0-0` 单字节探测 size + 分片支持（拒 HEAD 的 CDN 也能跑）。分片成功
-//! 后合并到 `<dest>.tmp` 再原子 `rename` → `<dest>`；中途失败保 `.part{i}` 供调试。
-//! 单段失败重试 3 次（线性 backoff 500ms）。mp4 URL `key=` 时效 1-3h，单讲（几分钟）安全；
-//! 批量边下边重发 `getVodVideoInfos` 的策略留 CP-V4。
+//! **CP-V3.1 加速**：reqwest 默认 H2 让 N 段复用同一条 TCP，被 SJTU CDN 按 per-conn 整体
+//! 限速 ~1MB/s。`.http1_only()` + `.pool_max_idle_per_host(0)` 强制每段独立 TCP，对照
+//! prcwcy/sjtu-canvas-video-download 的 aria2 -x 16 实测路径。
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -44,8 +44,12 @@ fn build_client(referer: &str) -> Result<Client> {
             .map_err(|e| SjtuCliError::InvalidInput(format!("Referer 非 ASCII: {e}")))?,
     );
     h.insert(USER_AGENT, HeaderValue::from_static(UA));
+    // http1_only + pool_max_idle_per_host(0)：每段一条独立 TCP，绕过 H2 per-conn 限速。
     Client::builder()
         .default_headers(h)
+        .http1_only()
+        .pool_max_idle_per_host(0)
+        .tcp_nodelay(true)
         .timeout(Duration::from_secs(60 * 30))
         .connect_timeout(Duration::from_secs(15))
         .build()
@@ -98,7 +102,11 @@ async fn parallel_ranges(
         let part = with_ext(dest, &format!("part{i}"));
         let cli = client.clone();
         let url = url.to_string();
-        joins.spawn(async move { range_with_retry(&cli, &url, &part, start, end).await });
+        // 段内 sleep i*50ms 错峰：CDN 看到 SYN 间隔均匀 50ms，不阻塞外层 spawn。
+        joins.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50 * i)).await;
+            range_with_retry(&cli, &url, &part, start, end).await
+        });
         spawned += 1;
     }
     let mut total = 0u64;
@@ -139,9 +147,7 @@ async fn range_with_retry(
     const BACKOFF_MS: [u64; 4] = [0, 3000, 10000, 25000];
     let mut last: Option<anyhow::Error> = None;
     for (attempt, wait) in BACKOFF_MS.iter().enumerate() {
-        if *wait > 0 {
-            tokio::time::sleep(Duration::from_millis(*wait)).await;
-        }
+        tokio::time::sleep(Duration::from_millis(*wait)).await;
         match range_once(client, url, path, start, end).await {
             Ok(n) => {
                 debug!(start, end, n, attempt, "段完成");

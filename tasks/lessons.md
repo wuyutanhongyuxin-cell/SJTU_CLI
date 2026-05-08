@@ -15,6 +15,27 @@
 
 ---
 
+## 2026-05-08 — reqwest 默认 H2 让多段 Range 复用单 TCP，被 CDN 按 per-conn 限速（CP-V3.1 加速 4×）
+
+**触发情境**：CP-V3 真机 800MB mp4 下载耗 800s（~1MB/s），怀疑是 SJTU CDN 总带宽限制。联网调研发现 reqwest #976 / uv #17204 都是同一个症状：**reqwest 默认 ALPN 协商到 HTTP/2，N 段并发请求在底层 multiplex 到一条 TCP 连接**，被 CDN 按 per-connection 整体限速。真机实证：`.http1_only()` + `.pool_max_idle_per_host(0)` 强制每段独立 TCP 后，800,483ms → 201,946ms（**3.97× 提速**），无新依赖、无新段池算法、download.rs 改 ~5 行。
+
+**错误模式**：默认相信 reqwest "并发等于多连接"。N 段 spawn + N 个 cli.clone() 看起来像 N 条独立连接，但 reqwest 内部连接池 + H2 multiplexing 会把它们折叠回一条。CDN 限速维度若是 per-TCP-connection（业界常见），并发数变化对吞吐零影响。
+
+**正确做法**：下载场景的 reqwest Client 必须显式：
+1. `.http1_only()` —— 关 H2 ALPN 协商，强制 H1.1
+2. `.pool_max_idle_per_host(0)` —— 关 idle 连接池，每个 send() 都建新 TCP
+3. `.tcp_nodelay(true)` —— 防 Nagle 算法粘连小包（reqwest 默认就开，显式写出来锁定意图）
+段间 spawn 错峰几十 ms（让 CDN 看到的 SYN 间隔不是同瞬抵达）防 burst 触发限流。
+
+**对照参考**：`prcwcy/sjtu-canvas-video-download`（Python+aria2，同 SJTU CDN）用 `aria2c -x 16` 跑通；aria2 默认就是每段独立 TCP，且 H1.1 only。我们用 reqwest 跑 H1.1 + 关池 = 等效路径。
+
+**规则**：
+- **下载类 reqwest Client 永远显式 `.http1_only().pool_max_idle_per_host(0)`**。Why：默认 H2 复用让"并发=同 TCP 多 stream"被 per-conn 限速；这是 reqwest #976 等长期未关 issue，不是我们项目特有 bug。How to apply：`Client::builder` 用于 Range 分片 / 多文件并发下载时必加，普通 API 调用不必。
+- **遇到"加并发不提速"反射弧先看 HTTP 协议层不是看段数**。Why：HTTP/2 multiplexing 是性能反模式在限速 CDN 场景。How to apply：吞吐打不上去时，先 `curl --http1.1 -H 'Range: bytes=0-1000000' URL -o /dev/null` 单段看真实速率，对比 reqwest 行为。
+- **联网调研 root cause 比上段池/动态切片划算**。Why：方案 1 改 5 行拿 4× 收益，方案 2（aria2 SegmentMan 段池）要 80 行；先最便宜的加速点榨干。How to apply：性能问题先 web search "<工具> <症状> issue"，看上游有没有同类 bug 的标准解，别上来就自己造段池。
+
+---
+
 ## 2026-05-08 — SJTU 教学 CDN 多段并发 Range 下载触发 504：8 路过载，4 路才稳（CP-V3 真机）
 
 **触发情境**：CP-V3 实装 mp4 Range 分片并发下载（`apps/canvas_video/download.rs`），按调研 §7 "MVP 8 段并发"建议默认 `--concurrency 8`。真机 800MB mp4 第一跑：段 0/1 飞快下完，段 2-7 全部返 `504 Gateway Timeout`，linear backoff 500ms × 3 次重试都被拒，整体失败。
@@ -33,6 +54,8 @@
 - **下载类调研报告里的并发数 / chunk 大小，CLI default 直接砍半**：调研用 GUI 工具（用户在场）的经验值，CLI 走保守。**Why**：CLI 自动化失败时用户不一定立刻看到，对方限流陷阱里要友好退避。**How to apply**：任何 CDN / 大文件 / 批量并发任务，看到调研建议 N，CLI default 设 N/2 起步
 - **5xx 重试 backoff 梯度走"秒级"不是"毫秒级"**：504/502/503 是上游需要喘息，不是重发就好。**Why**：网络层瞬态错（TCP reset / timeout）毫秒级 retry 有意义，gateway/upstream 5xx 毫秒级 retry 等于戳同一道墙。**How to apply**：retry backoff 至少 `[0, 3s, 10s, 25s]` 梯度，总缓冲 ≥ 30s
 - **保 .part 临时文件原子合并**：分片成功后写 `<dest>.tmp` 再 `rename` → `<dest>`；中途失败保 `.part{i}`（File::create 已 truncate，retry 自然覆盖）。**Why**：部分写文件直接落最终路径会让"文件存在"和"文件完整"语义混淆；调用者看到 `dest` 文件就以为下完。**How to apply**：所有大文件下载 / 数据导出，必须 `tmp`+`rename` 原子化，绝不直接写最终路径
+
+> **2026-05-08 retrospective**：上面"4 段才稳"的定论建立在"reqwest 默认 H2 让 N 段共用一条 TCP"的隐含前提上。CP-V3.1 切到 H1.1 + 关池后每段独立 TCP，8 段 / 16 段都不再触发 504。本条规则"调研建议值砍半"在该前提变更后不再适用 —— 见上一条"per-conn 限速"教训。
 
 ---
 
