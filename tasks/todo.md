@@ -253,6 +253,32 @@
 - [ ] CP-J5..CP-Jn 按 §2.5..§2.9 5 个 phase-2 SP 逐个 checkpoint
 - [ ] `tests/jwc_*.rs` mockito 端单测（不打真服务器）
 
+### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
+
+> **范围**：批量下载用户已注册课程的课堂录播视频 (mp4) + 可选音频提取。**完全独立于 S3c Canvas PAT 路径**：本路径走 LTI 1.3 OIDC + v.sjtu 后端，不走 PAT。详细契约见 `tasks/canvas_video_investigation.md`。
+
+> **红线**：CLAUDE.md "i.sjtu / 交我办" 硬红线**不适用**本系统（v.sjtu 无写按钮 / 无选课信息维护类）；但仍按"只读访客"原则——CLI 实装只调查询端点，**不调埋点 (`burialPoint`) / 不写"上次观看时间" / 不上传笔记**。
+
+> **PII 策略（用户 2026-05-07 确认）**：默认抹学生端 PII (`userCode` / `lastWatchTime` / `playCount` / `playTime` / `playTimes` / `accessToken.jwt_token`)；教师姓名作为公开教学信息默认留；`--with-identity` 才全出。
+
+> **实装路线（用户 2026-05-07 确认）**：CP-V1 LTI launch 走 **headless_chrome**（复用 S1 依赖），不手刻 OIDC implicit flow。
+
+**调研 → 实装 5 步（不许偏离顺序）**
+
+- [x] **CP-V0 调研** ✅ 2026-05-07：chrome-devtools MCP 半自动抓 LTI 1.3 OIDC 三跳 + `getAccessTokenByTokenId` (含 token + courId + ltiCourseId) + `findVodVideoList` (16 讲列表) + `getVodVideoInfos` (双机位 mp4 直链 + 时效签名)；契约写入 `tasks/canvas_video_investigation.md` 10 节；3 个关键 gotcha 已记（canvasCourseId 必须用加密 courId 不是数字 ID / token 用 data.token 不是 accessToken.jwt_token / mp4 URL 含 unix 秒签名不可缓存）
+- [x] **CP-V0.1 用户确认** ✅ 2026-05-07：契约 + LTI launch 路线 + PII 策略全部口头通过
+- [ ] **CP-V1 实装 LTI launch + token 提取**：新增 `apps/canvas_video/{mod,auth,api,http,models,throttle,tests_parse}.rs` + `commands/canvas_video/{mod,handlers,data}.rs` + `cli/canvas_video.rs`；`auth.rs` 用 headless_chrome 跑完整 LTI launch（visible=false / idle_timeout=600s），等 SPA hash URL 出现 tokenId 后从 chrome cookie jar 提 v.sjtu 的 JSESSIONID + route → 落盘 `sub_sessions/canvas_video.json`；`api.rs` 实装 `get_bootstrap` (调 getAccessTokenByTokenId 提 data.token + data.params.courId) / `list_videos` (POST findVodVideoList) / `get_video_info` (POST getVodVideoInfos)；模块 < 200 行硬限
+- [ ] **CP-V2 list 真机**：`sjtu canvas videos list 88168 --json` 列出 16 讲 + 字段脱敏验收（学生端 PII 全 None，教师姓名留）
+- [ ] **CP-V3 单讲下载**：`sjtu canvas videos download 88168 --lecture 1 --to ./tmp` 单讲完整 mp4 落盘（Range 分片并发 8，Referer: courses.sjtu.edu.cn），文件可播放
+- [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas videos download 88168 --audio-only` 16 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg）
+- [ ] mockito 端单测（不打真服务器）
+
+**留白**：
+- 双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2
+- token 时效未现场抓多次确认；CLI 不缓存，每次完整 launch 重新拿（成本 ~3-10s 可接受，单课程一学期下载是一次性场景）
+- 字幕提取：`videSrtUrl` 实测 null，有字幕的课程未现场验
+- ffmpeg 检测：CLI 启动时不预检（启动慢），仅 `--audio-only` 路径检测，缺则报友好错指引装
+
 ---
 
 ## ⚪ S4 — 一卡通消费明细（从原 S4 降级为 S3e 拓展或 Phase 2）
