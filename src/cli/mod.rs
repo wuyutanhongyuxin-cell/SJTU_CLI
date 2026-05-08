@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 
 mod canvas;
+mod canvas_video;
 mod elec;
 mod jwbmessage;
 mod jwc;
@@ -76,6 +77,15 @@ enum Commands {
         sub: canvas::CanvasSub,
     },
 
+    /// 课堂视频（v.sjtu.edu.cn / 交我学）：LTI 1.3 launch 鉴权的视频列表 / 下载。
+    ///
+    /// 与上面的 `canvas`（PAT 鉴权 oc.sjtu）独立 —— 鉴权链 / 域名 / 端点全不一样。
+    /// CP-V1 仅 `list`；下载留给 CP-V3/V4。
+    CanvasVideo {
+        #[command(subcommand)]
+        sub: canvas_video::CanvasVideoSub,
+    },
+
     /// 教务系统（i.sjtu.edu.cn / 正方）：成绩 / 课表 / GPA / 考试安排（MVP 仅成绩）。
     Jwc {
         #[command(subcommand)]
@@ -134,6 +144,7 @@ pub async fn run() -> Result<()> {
         Commands::Shuiyuan { sub } => shuiyuan::dispatch(sub, fmt).await,
         Commands::Messages { sub } => jwbmessage::dispatch(sub, fmt).await,
         Commands::Canvas { sub } => canvas::dispatch(sub, fmt).await,
+        Commands::CanvasVideo { sub } => canvas_video::dispatch(sub, fmt).await,
         Commands::Jwc { sub } => jwc::dispatch(sub, fmt).await,
         Commands::Services { sub } => services::dispatch(sub, fmt).await,
         Commands::Elec { sub } => elec::dispatch(sub, fmt).await,

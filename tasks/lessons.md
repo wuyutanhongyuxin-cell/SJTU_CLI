@@ -15,6 +15,47 @@
 
 ---
 
+## 2026-05-08 — worktree 隔离 subagent 看到的是 base commit，不是主分支 HEAD（CP-V1 合并坑）
+
+**触发情境**：CP-V1 编码 delegate 给 subagent，开 `isolation: worktree`。subagent 跑完四关全绿交付，但合并回主仓库前 review 发现 worktree 的 `src/cli/mod.rs` 把 `mod elec` / `mod jwc` / `mod services` 三个声明 + Commands enum 三个 variant + dispatch 三个 arm **全删了**。差点直接 `cp` 整文件回主仓库覆盖前面 793915c + 947ce6f 两个 commit 的实装。
+
+**错误模式**：默认 worktree 是从主分支 HEAD 拉的。实际 `git worktree add` 拉的是 **创建 worktree 那一刻** 的 commit；如果中间主分支又往前 commit 了几个，worktree 基底就落后。subagent 看到的 `cli/mod.rs` 是老版本（没有 elec/jwc/services），它老老实实在老版上加 `CanvasVideo`，结果产生的 diff 长得像"删了 3 个 variant + 加了 1 个 variant"。如果不细看就 `Copy-Item -Force`，主分支历史就被静默回滚。
+
+**正确做法**：
+1. **派 subagent 走 worktree 前**：先 `git -C <worktree> log --oneline -1` 看 base commit，对比主仓库 `git log -1`，落后了就 worktree 内 `git pull` 或重建 worktree
+2. **subagent 交付后合并**：永远先 `git -C <worktree> diff --stat HEAD` 看改动行数。若 mod.rs / lib.rs 类聚合文件出现 `-N +M` 而 N 异常大（>追加行数），警铃响 —— 大概率 base 落后导致看到老版本
+3. **合并策略**：只 cp 新建文件（`?? src/...`）；对 mod.rs / lib.rs / Cargo.toml 这类聚合文件，永远 **手工 Edit 追加 canvas_video 相关 lines**，不整文件覆盖
+4. **派 subagent 时主仓库尽量干净**：若主仓库还有 staged 改动，subagent worktree 一律看不到 —— 要么先 commit 再开 worktree，要么 `git stash` 后再开
+
+**规则**：worktree 是 base commit 的快照，不是 HEAD 的实时镜像；合并 subagent worktree 改动时只 cp 新建文件，聚合 mod 文件一律手工追加。
+
+---
+
+## 2026-05-08 — Canvas (oc.sjtu) SSO 触发不在纯 302 链上，要点击或找直跳 URL（CP-V2 真机阻塞）
+
+**触发情境**：CP-V1 编码完单测全绿，跑 `sjtu canvas-video list 88168` 真机 30s 超时。逐层诊断：先发现 chrome 端注入 cookie 全被 `domain==""` 过滤；加 `cas_login("canvas_oc", oc URL)` 给 oc 域签 session；cas 模块跟下来的 cookie domain 全空 + 末跳 200 HTML 停 —— hop 0 oc/courses/.../external_tools/8329 → 302 → hop 1 oc/login → 302 → hop 2 oc/login/canvas → **200 HTML 终止**。整条链没碰过 jaccount，落盘 5 个 anonymous cookie，chrome 注入后 navigate 仍被踢回同一个 /login/canvas。
+
+**错误模式**：默认所有 SJTU SP 的 SSO 形态一致（jwbmessage / elec / jwc/ZF 都是 302 链 follow 完即拿到认证 session）。把这个假设套到 Canvas 上设计 CP-V1：用 cas_login 给 oc 拿 cookie + 用 headless chrome 接力 LTI launch。事实 SJTU Canvas 的 SSO 触发是 **浏览器端 form/JS-driven**：`/login/canvas` 是登录方式选择页（静态 HTML），有"Sign in with JAccount"按钮，点了才 form-submit 到真正的 OAuth 入口（推测在 `/login/oauth2_provider/...` 之类）→ 302 jaccount → SSO → 302 oc/oauth2_callback → 种认证 cookie。reqwest 不跑 JS、不会点按钮；headless chrome `navigate_to` 也只 navigate 不点按钮，`wait_until_navigated` 一返回就 done，根本不到 SSO 那步。
+
+调研漏斗：CP-V0 调研期是用户自己在浏览器**已登录**会话里 LTI launch（cookie 全在），抓的 network 是从 external_tools → form_post 到 v.sjtu 这一段，**完全跳过了 oc 自身的 SSO 触发段**。所以原 `canvas_video_investigation.md` §2.5 第 4 点说"CLI 复用 cas_login 拿 oc cookie"在原理上写对了但 URL 没指明 —— 只要把它落到代码就发现 cas_login 拿的不是认证 cookie。
+
+**正确做法**：
+1. **调研期必须用 incognito + 未登录浏览器** 触发 SSO 一次 —— 真实跳转链才完整暴露。已登录会话只能验证下游 API，不能验证 SSO 入口
+2. **每个 SP 调研第一步**：用 chrome-devtools MCP `list_network_requests` 在 navigate-to-SP 后看：①前 5 跳是不是全 302；②有没有 jaccount 域出现。两条都是 → 正常 302 链可以 cas_login。任一缺失 → 要么找直跳 SSO URL，要么用 headless 模拟点击/form-submit
+3. **Canvas 类 button-driven SSO** 修法两条路：
+   - A：找出"Sign in with JAccount"按钮对应的真实 form action / URL（如 `/login/oauth2_provider/sjtu` 之类），cas target 改成它
+   - B：headless chrome 在 navigate 后用 evaluate_script 定位按钮节点 click()，等下一波 navigate 完成
+4. **域 cookie 兜底**（已落 auth_chrome.rs build_cookie_params）：cas 模块 `follow_redirect_chain` 收 Set-Cookie 时未按 RFC 6265 §5.3 默认填 request URI host —— 落盘 cookie domain 字段常为空，注入到 chrome 时被过滤。S2 修通用 bug 后此 fallback 可删
+
+**规则**：
+- ✅ SP 调研：incognito 浏览器 + chrome-devtools MCP 抓未认证 SSO 真实跳转链；前 5 跳必须见 jaccount 域，否则 SSO 是 button/JS-driven
+- ✅ button-driven SSO 实装路线选 A（找直跳 URL）优先于 B（chrome 点击）—— 前者纯 reqwest，后者依赖 headless 稳定性
+- ❌ 不要假设所有 SJTU SP 都用纯 302 SSO；jwbmessage / elec / jwc/ZF 是 302，oc.sjtu (Canvas) 不是
+- ❌ 不要拿"用户已登录会话抓的 network"当 SSO 调研依据 —— 那只验证下游 API，跳过了入口
+- ❌ chrome navigate 后不要假设 SSO 自动跑完；headless 默认不会自动点击页面按钮
+
+---
+
 ## 2026-04-26 — i.sjtu CAS 入口是 `/jaccountlogin`，不是 nav 深页（CP-J1 实装坑）
 
 **触发情境**：S3f 实装 N305005 学生成绩查询 CLI，照 `cas/mod.rs` 注释"target_url 必须是 SP 真正进的页面（如 `/xtgl/index_initMenu.html`）"把 jwc 的 LOGIN_URL 设成深页。CAS 链跑完落盘 sub_session（JSESSIONID + keepalive 两条 cookie），但调 `POST /cjcx/cjcx_cxXsgrcj.html?doType=query&gnmkdm=N305005` 一律收 ZF 自定义 `status=901` + 空 body。

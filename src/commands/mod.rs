@@ -2,6 +2,7 @@
 
 pub mod auth_cmds;
 pub mod canvas;
+pub mod canvas_video;
 pub mod elec;
 pub mod jwbmessage;
 pub mod jwc;

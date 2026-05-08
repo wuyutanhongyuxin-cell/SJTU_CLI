@@ -267,8 +267,16 @@
 
 - [x] **CP-V0 调研** ✅ 2026-05-07：chrome-devtools MCP 半自动抓 LTI 1.3 OIDC 三跳 + `getAccessTokenByTokenId` (含 token + courId + ltiCourseId) + `findVodVideoList` (16 讲列表) + `getVodVideoInfos` (双机位 mp4 直链 + 时效签名)；契约写入 `tasks/canvas_video_investigation.md` 10 节；3 个关键 gotcha 已记（canvasCourseId 必须用加密 courId 不是数字 ID / token 用 data.token 不是 accessToken.jwt_token / mp4 URL 含 unix 秒签名不可缓存）
 - [x] **CP-V0.1 用户确认** ✅ 2026-05-07：契约 + LTI launch 路线 + PII 策略全部口头通过
-- [ ] **CP-V1 实装 LTI launch + token 提取**：新增 `apps/canvas_video/{mod,auth,api,http,models,throttle,tests_parse}.rs` + `commands/canvas_video/{mod,handlers,data}.rs` + `cli/canvas_video.rs`；`auth.rs` 用 headless_chrome 跑完整 LTI launch（visible=false / idle_timeout=600s），等 SPA hash URL 出现 tokenId 后从 chrome cookie jar 提 v.sjtu 的 JSESSIONID + route → 落盘 `sub_sessions/canvas_video.json`；`api.rs` 实装 `get_bootstrap` (调 getAccessTokenByTokenId 提 data.token + data.params.courId) / `list_videos` (POST findVodVideoList) / `get_video_info` (POST getVodVideoInfos)；模块 < 200 行硬限
-- [ ] **CP-V2 list 真机**：`sjtu canvas videos list 88168 --json` 列出 16 讲 + 字段脱敏验收（学生端 PII 全 None，教师姓名留）
+- [x] **CP-V1 实装 LTI launch + token 提取** ✅ 2026-05-08：subagent worktree 跑完，主仓库手工合并通过四关验证。落地 13 文件：
+  - `apps/canvas_video/{mod,models,auth,auth_chrome,http,api,throttle,tests_parse}.rs`（auth.rs 拆出 auth_chrome.rs 守 200 行硬限；同步 chrome 调用包在 `tokio::task::spawn_blocking`）
+  - `cli/canvas_video.rs`（`CanvasVideoSub::List` enum + dispatch；与 PAT `Canvas` 独立顶层 variant，命令是 `sjtu canvas-video list <id>`）
+  - `commands/canvas_video/{mod,handlers,data.rs}`（`cmd_list` 走 load_session → connect → list → 过滤 vide_audit_status==3 → 按 course_begin_time 排序加 1-based seq）
+  - **不持久化 token / cour_id**（TTL 1-3 小时，每次重跑 LTI launch ~3-10s）；只复用主 `session.json` 的 jaccount cookie 注入到 chrome
+  - PII 红线落实：`models::TokenData` 故意只反序列化 4 个字段（token / params.{courId, ltiCourseId, courseName}），`userCode/userName/jwt_token` 等 PII **不入 struct**，编译产物里也不带
+  - 验证：`cargo check` / `clippy -D warnings` / `test --lib`（82 tests，含 7 个新 mockito 单测）/ `fmt --check` 全绿；`sjtu canvas-video list --help` clap 渲染正常
+  - 实装与原计划差异：①sub-session 落盘部分回滚（token 不持久化，但 oc 域 cookie 通过 cas_login 落 `canvas_oc.json`）②`get_video_info` / `findVodVideoList`-by-`ltiCourseId` 留给 CP-V3，CP-V1 只到 `list_lectures`
+  - **2026-05-08 真机首跑暴露 4 处补丁**（已修，单测仍 7/7 PASS）：①`auth.rs` 起手插 `cas_login("canvas_oc", external_tools URL)` 给 oc.sjtu 签认证 session（缺这步 chrome navigate 被踢 `/login/canvas` 卡死）②同步移除 `lti_launch` / `Client::connect` 的 dead `main_session` 参数（cas_login 内部 `load_session`）③`auth_chrome::wait_for_landed` 超时错误附最后 URL（脱敏到 host+path）④`build_cookie_params` 对 cas 落盘 cookie 的空 domain 回填 `oc.sjtu.edu.cn`（cas 模块 RFC 6265 §5.3 全局 bug，待 S2 修通后此兜底可删）
+- [ ] **CP-V2 list 真机** 🚧 阻塞中：上述 4 处补丁后，cas hop 链停在 `oc/login/canvas` 200 HTML —— SJTU Canvas 的 SSO 触发不在纯 302 链上，需在浏览器里点击"Sign in with JAccount"按钮（reqwest 不跑 JS / chrome navigate 不自动点）。**待调研**：用 chrome-devtools MCP 抓 oc 真实 SSO 跳转 URL（如有直跳入口可绕过 `/login/canvas`），或在 `auth_chrome` 加按钮点击逻辑。详见 `lessons.md` 同日新增条目。
 - [ ] **CP-V3 单讲下载**：`sjtu canvas videos download 88168 --lecture 1 --to ./tmp` 单讲完整 mp4 落盘（Range 分片并发 8，Referer: courses.sjtu.edu.cn），文件可播放
 - [ ] **CP-V4 批量 + 音频提取**：`sjtu canvas videos download 88168 --audio-only` 16 讲 m4a 全部抽流（ffmpeg subprocess `-c copy`，文档说明需本地装 ffmpeg）
 - [ ] mockito 端单测（不打真服务器）

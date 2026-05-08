@@ -12,6 +12,9 @@ sub_sessions/
 .env
 *.log
 
+# Claude Code 工作区（worktrees / 临时元数据；含 git 内部结构，绝不入仓库）
+.claude/
+
 # 编辑器 / OS
 .idea/
 .vscode/
