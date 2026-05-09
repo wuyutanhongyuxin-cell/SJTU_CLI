@@ -21,6 +21,8 @@ mod models;
 mod models_video;
 #[cfg(test)]
 mod tests_parse;
+#[cfg(test)]
+mod tests_cache;
 mod throttle;
 
 pub use api::{Client, VideoFetch};
