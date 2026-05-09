@@ -29,3 +29,23 @@ fn cache_expired_returns_none() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+/// V5.A：cache_corrupted_returns_none — 垃圾 JSON / IO 失败均不 panic，load 返 None。
+#[test]
+fn cache_corrupted_returns_none() {
+    let path = std::env::temp_dir().join("sjtu_cli_v5a_corrupted.json");
+    let _ = std::fs::remove_file(&path);
+
+    // 1) 文件不存在 → None
+    assert!(cache::load_from_path(&path, 88168, 8329).is_none());
+
+    // 2) 写垃圾 JSON → None
+    std::fs::write(&path, "not valid json {{").unwrap();
+    assert!(cache::load_from_path(&path, 88168, 8329).is_none());
+
+    // 3) 写有效 JSON 但缺字段 → None
+    std::fs::write(&path, r#"{"hello":"world"}"#).unwrap();
+    assert!(cache::load_from_path(&path, 88168, 8329).is_none());
+
+    let _ = std::fs::remove_file(&path);
+}
