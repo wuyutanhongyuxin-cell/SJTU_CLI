@@ -14,6 +14,7 @@ mod api_form;
 pub mod auth;
 mod auth_chrome;
 pub mod download;
+pub mod ffmpeg;
 mod http;
 mod models;
 mod models_video;

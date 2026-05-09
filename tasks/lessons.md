@@ -15,6 +15,33 @@
 
 ---
 
+## 2026-05-09 — 批量下载先验产物再调 API：临用临取 + 断点续传两条规则（CP-V4）
+
+**触发情境**：CP-V4 设计 `sjtu canvas-video download --lectures all` 18 讲 × 2 机位 = 36 个 mp4。两条已知约束相互打架：① mp4 URL 含 `key=` 时效签名 1-3h 过期 → 不能开局一次性 batch-fetch 36 个 URL；② 36 文件 ~30+ GB 任一中途失败若不能续跑，下次得重抓。需要既"临用临取"又"已下不重下"。
+
+**错误模式（设计期就能预见的）**：
+1. 把"先调 get_video_info 拿 URL"作为唯一入口 → 每次重跑都会无谓重发一次拿 URL，浪费 1-2s 网络往返 × 18 讲 = 30s+；更坏的是若网络抖动这步先挂，本可 skip 的讲也被打断
+2. 用文件大小哈希校验做 skip 判断 → 没有官方 size 接口，调研里 v.sjtu 也没返 Content-Length 可信值；只能用 size>0 + 路径模式的"曾经下完过"启发式
+3. fail-soft 与 skip 状态混在一个布尔里 → 调用方没法分辨"上次已下完"vs"这次刚成功"vs"这次失败"。Envelope 里 `status: ok / skipped / partial / failed` 四态分清才好下次操作
+
+**正确做法**（已落 CP-V4 实装）：
+1. **先文件后 API**：`check_skip(target, channel, args)` 用 `safe_filename` 重建 dest 路径，`std::fs::metadata` 查在不在 → 若 audio_only 看 m4a / 否则看 mp4 → size>0 即认为是上次成功产物，构造 ChannelOutput 直接进 entry，**跳过 get_video_info 整段**
+2. **临用临取在 download_one_channel 一线**：所有非 skip 路径在该函数内才调 `client.get_video_info(...)` 拿当下新签的 URL，即使前 17 讲下完用了 2 小时，第 18 讲签名仍是当前发的不会过期
+3. **Envelope 四态**：`derive_status(want, got, errs, all_skipped)`：want=channels.len()，got=成功记录数，errs=失败记录数；`all_skipped && got==want → skipped`、`errs.is_empty() && got==want → ok`、`got.is_empty() → failed`、其他 → `partial`
+4. **stderr 进度不污染 stdout envelope**：`eprintln!("[{i}/{n}] 第 {seq} 讲 ...")` + `"  ⚠ {msg}"` + `"  ✓ ch{c} 已存在 ({size}) → skip"`；envelope 走 stdout 的 yaml/json，AI agent 可双向消费
+
+**规则**（按"实装时一行 grep"标准写）：
+- ✅ **批量下载先验本地产物再调远端 API**：把"已下完产物的探测"作为循环顶层的第一步，避免无谓 token 消耗 + 让本能 skip 的迭代不被入口 API 抖动打断。Why：批量任务最贵的是端到端时间，最容易翻车的是中途网络。How to apply：所有 batch downloader（不仅 canvas-video）必须先 file-meta probe 再 fetch metadata
+- ✅ **签名带 TTL 的下载链严禁 batch pre-fetch**：API 拿 URL 后必须立即开下，不能存到下游再用。Why：预拿到的过期 URL 全是垃圾，且 fail 时分不清是网络挂还是签名挂。How to apply：循环里 `let fetch = ...await?; let bytes = download(&fetch.url)...` 紧贴写，中间不要插 sleep/agg/sort 等动作
+- ✅ **批量结果用四态 status 而非二态 success bool**：`ok` / `skipped` / `partial` / `failed` 四态，且 `partial` 留给"双机位时一路成功一路挂"这种半成品。Why：用户复跑时能精确选 partial+failed 的子集补，bool 只能全跑。How to apply：CLI 批处理 envelope 一律 status: enum-string，不要 bool
+
+**真机验证**：
+- audio-only 单讲：840MB mp4 → 20MB AAC m4a 共 105s（mp4 84s + ffmpeg 21s），ffprobe 验 codec=aac
+- 断点续传：同条件二跑 status=skipped、succeeded=0、skipped=1、bytes=磁盘 size、elapsed_ms=0（仅 LTI launch 21s）
+- 进度行验证 stderr 不进 envelope 流：`./sjtu ... --json | jq` 直接通
+
+---
+
 ## 2026-05-08 — reqwest 默认 H2 让多段 Range 复用单 TCP，被 CDN 按 per-conn 限速（CP-V3.1 加速 4×）
 
 **触发情境**：CP-V3 真机 800MB mp4 下载耗 800s（~1MB/s），怀疑是 SJTU CDN 总带宽限制。联网调研发现 reqwest #976 / uv #17204 都是同一个症状：**reqwest 默认 ALPN 协商到 HTTP/2，N 段并发请求在底层 multiplex 到一条 TCP 连接**，被 CDN 按 per-connection 整体限速。真机实证：`.http1_only()` + `.pool_max_idle_per_host(0)` 强制每段独立 TCP 后，800,483ms → 201,946ms（**3.97× 提速**），无新依赖、无新段池算法、download.rs 改 ~5 行。

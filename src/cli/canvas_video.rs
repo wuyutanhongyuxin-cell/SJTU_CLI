@@ -2,8 +2,9 @@
 //!
 //! 命令清单：
 //! - `list <course-id> [--tool-id 8329] [--with-identity] [--include-unaudited]`
-//! - `download <course-id> --lecture N --to <dir> [--channel 0] [--concurrency 8]
-//!     [--tool-id 8329] [--with-identity]`（CP-V3）
+//! - `download <course-id> (--lecture N | --lectures SPEC) --to <dir>
+//!     [--channel 0 | --all-channels] [--audio-only [--keep-mp4]]
+//!     [--concurrency 8] [--tool-id 8329] [--with-identity]`（CP-V3 / CP-V4）
 //!
 //! 与 `sjtu canvas`（PAT 鉴权）独立两条链。
 
@@ -44,8 +45,14 @@ pub enum CanvasVideoSub {
         course_id: u64,
 
         /// 讲序号（1-based，按 course_begin_time 升序后的位置；与 `list` 输出的 `seq` 对齐）。
-        #[arg(long)]
-        lecture: u32,
+        /// 与 `--lectures` 互斥；二选一。
+        #[arg(long, conflicts_with = "lectures")]
+        lecture: Option<u32>,
+
+        /// 批量讲选择器：`all` / `1-5` / `1,3,5-7`。与 `--lecture` 互斥。
+        /// CP-V4：每讲下载前临用临取 mp4 URL（防 `key=` 1-3h 时效签名过期），失败 fail-soft 不中断。
+        #[arg(long, conflicts_with = "lecture")]
+        lectures: Option<String>,
 
         /// 输出目录（不存在自动创建）。
         #[arg(long)]
@@ -58,6 +65,15 @@ pub enum CanvasVideoSub {
         /// 双机位都下载（顺序 channel 0 → 1，落两个独立 mp4）。与 `--channel` 互斥。
         #[arg(long, default_value_t = false)]
         all_channels: bool,
+
+        /// 仅保留音频：mp4 落盘后用 ffmpeg `-vn -acodec copy` 抽 m4a，默认删 mp4。
+        /// 需本地装 ffmpeg；缺则报错指引装。
+        #[arg(long, default_value_t = false)]
+        audio_only: bool,
+
+        /// 与 `--audio-only` 配合：抽完 m4a 后保留 mp4（默认抽完删 mp4）。单独使用无效。
+        #[arg(long, default_value_t = false)]
+        keep_mp4: bool,
 
         /// 单文件分片并发数（< 2 走单段流式）。CP-V3.1 后每段独立 TCP（HTTP/1.1 + 关池），
         /// 8 路稳定，吞吐 ~6-10 MB/s（aria2 -x 16 等效路径）。
@@ -86,36 +102,64 @@ pub async fn dispatch(sub: CanvasVideoSub, fmt: Option<OutputFormat>) -> Result<
         CanvasVideoSub::Download {
             course_id,
             lecture,
+            lectures,
             to,
             channel,
             all_channels,
+            audio_only,
+            keep_mp4,
             concurrency,
             tool_id,
             with_identity,
         } => {
-            if all_channels {
-                cv_cmds::cmd_download_all(
+            // 二选一：--lectures 走批量；否则按单讲（默认 lecture=1 若两者都没）。
+            if let Some(spec) = lectures {
+                cv_cmds::cmd_download_batch(cv_cmds::BatchArgs {
                     course_id,
                     tool_id,
-                    lecture,
-                    to,
-                    concurrency,
-                    with_identity,
-                    fmt,
-                )
-                .await
-            } else {
-                cv_cmds::cmd_download(
-                    course_id,
-                    tool_id,
-                    lecture,
-                    to,
+                    lectures_spec: spec,
+                    to_dir: to,
+                    all_channels,
                     channel,
                     concurrency,
+                    audio_only,
+                    keep_mp4,
                     with_identity,
                     fmt,
-                )
+                })
                 .await
+            } else {
+                let single = lecture.ok_or_else(|| {
+                    anyhow::anyhow!("缺 --lecture <N> 或 --lectures <SPEC>，请二选一")
+                })?;
+                if all_channels {
+                    cv_cmds::cmd_download_all(
+                        course_id,
+                        tool_id,
+                        single,
+                        to,
+                        concurrency,
+                        audio_only,
+                        keep_mp4,
+                        with_identity,
+                        fmt,
+                    )
+                    .await
+                } else {
+                    cv_cmds::cmd_download(
+                        course_id,
+                        tool_id,
+                        single,
+                        to,
+                        channel,
+                        concurrency,
+                        audio_only,
+                        keep_mp4,
+                        with_identity,
+                        fmt,
+                    )
+                    .await
+                }
             }
         }
     }

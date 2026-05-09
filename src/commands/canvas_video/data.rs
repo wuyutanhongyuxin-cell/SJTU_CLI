@@ -68,11 +68,15 @@ pub(super) struct DownloadData {
     pub video_id_redacted: String,
     /// 视频时长（秒），来自 `videPlayTime`。
     pub duration_secs: Option<i64>,
-    /// 落盘路径（绝对路径）。
+    /// 落盘路径（绝对路径）。`audio_only && !keep_mp4` 时已被删，仅作历史标记。
     pub file_path: String,
-    /// 实际写入字节数。
+    /// `--audio-only` 时抽出的 m4a 路径。普通下载为 None。
+    pub audio_path: Option<String>,
+    /// `audio_only && !keep_mp4` 时为 false（mp4 已删），其他场景 true。
+    pub mp4_kept: bool,
+    /// 实际写入字节数（mp4，抽完音频后即使删 mp4 这里也保留原始大小）。
     pub bytes: u64,
-    /// 总耗时（毫秒）。
+    /// 总耗时（毫秒；含 mp4 下载 + 可选 ffmpeg 抽流）。
     pub elapsed_ms: u128,
     /// mp4 URL：默认抹掉（含 `key=` 时效签名 + 服务器内部路径），with_identity 才出全文。
     pub mp4_url_redacted: String,
@@ -96,12 +100,59 @@ pub(super) struct DownloadAllData {
     pub total_elapsed_ms: u128,
 }
 
-/// `--all-channels` 模式下每路的输出。
+/// `--all-channels` 模式下每路的输出，也复用于 batch 模式每讲每机位。
 #[derive(Debug, Serialize)]
 pub(super) struct ChannelOutput {
     pub channel: i32,
     pub file_path: String,
+    /// `--audio-only` 时抽出的 m4a 路径。
+    pub audio_path: Option<String>,
+    /// `audio_only && !keep_mp4` 时为 false。
+    pub mp4_kept: bool,
     pub bytes: u64,
     pub elapsed_ms: u128,
     pub mp4_url_redacted: String,
+}
+
+/// `sjtu canvas-video download --lectures <SPEC>` 批量下载的 data 形状。
+/// fail-soft：单讲失败进 `items[].error`，不阻塞后续；末尾 `failed_count` 给摘要。
+#[derive(Debug, Serialize)]
+pub(super) struct BatchData {
+    pub course_id: u64,
+    pub tool_id: u64,
+    /// 用户原始 spec 回显（未展开）。
+    pub lectures_spec: String,
+    /// 双机位 / 单机位标志（用户传入）。
+    pub all_channels: bool,
+    /// `--audio-only` 标志。
+    pub audio_only: bool,
+    /// 计划下载的讲数（`parse_lectures_spec` 展开后长度）。
+    pub total_planned: usize,
+    /// 完整成功的讲数（每路都 ok）。
+    pub succeeded: usize,
+    /// 失败的讲数（任一路失败即计入）。
+    pub failed_count: usize,
+    /// 跳过的讲数（dest 已存在且 size 一致）。
+    pub skipped: usize,
+    /// 所有路总字节。
+    pub total_bytes: u64,
+    /// 总耗时（含 ffmpeg）。
+    pub total_elapsed_ms: u128,
+    /// 每讲一条。顺序按展开后讲序。
+    pub items: Vec<BatchEntry>,
+}
+
+/// 批量模式下每讲的执行结果。
+#[derive(Debug, Serialize)]
+pub(super) struct BatchEntry {
+    /// 1-based 讲序号。
+    pub seq: u32,
+    pub video_name: Option<String>,
+    pub video_id_redacted: String,
+    /// `ok` / `partial` / `failed` / `skipped`。`partial` = 多机位时部分路成功。
+    pub status: String,
+    /// 该讲的所有路输出（单机位时长度 1）。
+    pub channels: Vec<ChannelOutput>,
+    /// fail-soft 错误摘要：每路失败一条，文案脱去内部路径。
+    pub errors: Vec<String>,
 }

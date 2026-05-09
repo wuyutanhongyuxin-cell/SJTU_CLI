@@ -8,6 +8,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::apps::canvas_video::{Client, LectureVideo};
+use crate::error::SjtuCliError;
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{LectureEntry, ListData};
@@ -77,6 +78,41 @@ fn to_entry(seq: u32, v: LectureVideo) -> LectureEntry {
         cour_id: v.cour_id,
         vide_audit_status: v.vide_audit_status,
     }
+}
+
+/// `--lecture N` → 实际 `LectureVideo`：list_lectures + 过滤 vide_audit_status==3 +
+/// 按 course_begin_time 升序 + nth(N-1)。download / batch handler 复用。
+pub(super) async fn resolve_target(client: &Client, lecture: u32) -> Result<LectureVideo> {
+    if lecture == 0 {
+        return Err(SjtuCliError::InvalidInput("--lecture 从 1 起，0 无效".into()).into());
+    }
+    let audited = list_audited_sorted(client).await?;
+    let total = audited.len();
+    audited
+        .into_iter()
+        .nth(lecture as usize - 1)
+        .ok_or_else(|| {
+            SjtuCliError::InvalidInput(format!("课程仅 {total} 讲（已审），不存在第 {lecture} 讲"))
+                .into()
+        })
+}
+
+/// list_lectures + 过滤已审 + course_begin_time 升序，1-based 下标即第 N 讲。
+pub(super) async fn list_audited_sorted(client: &Client) -> Result<Vec<LectureVideo>> {
+    let (raw, _) = client
+        .list_lectures(client.cour_id(), client.lti_course_id())
+        .await?;
+    let mut audited: Vec<LectureVideo> = raw
+        .into_iter()
+        .filter(|v| v.vide_audit_status == Some(3))
+        .collect();
+    audited.sort_by(|a, b| {
+        a.course_begin_time
+            .as_deref()
+            .unwrap_or("")
+            .cmp(b.course_begin_time.as_deref().unwrap_or(""))
+    });
+    Ok(audited)
 }
 
 /// `--with-identity=true` 直出全文；否则脱敏成 `prefix(12)***`。下载 handler 复用。
