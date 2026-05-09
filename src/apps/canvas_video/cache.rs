@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::models::Bootstrap;
 use crate::cookies::{sub_session_path, Cookie};
@@ -85,8 +85,7 @@ pub(super) fn save_to_path(
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("缓存路径无父目录: {}", path.display()))?;
-    std::fs::create_dir_all(parent)
-        .with_context(|| format!("mkdir {} 失败", parent.display()))?;
+    std::fs::create_dir_all(parent).with_context(|| format!("mkdir {} 失败", parent.display()))?;
     let cached = CachedBootstrap::from_bootstrap(course_id, lti_tool_id, b);
     let json = serde_json::to_string_pretty(&cached).context("序列化 CachedBootstrap 失败")?;
     let tmp = path.with_extension("json.tmp");
@@ -100,11 +99,7 @@ pub(super) fn save_to_path(
 /// 从指定路径加载并通过 4 重校验：IO / JSON / id 匹配 / TTL。
 /// 任一失败返 None（不 panic、不 propagate），上层调缓存命中失败重 launch 即可。
 /// `pub(super)` 给 tests_parse.rs 用；prod 走 load() 包装。
-pub(super) fn load_from_path(
-    path: &Path,
-    course_id: u64,
-    lti_tool_id: u64,
-) -> Option<Bootstrap> {
+pub(super) fn load_from_path(path: &Path, course_id: u64, lti_tool_id: u64) -> Option<Bootstrap> {
     let raw = std::fs::read_to_string(path).ok()?;
     let cached: CachedBootstrap = serde_json::from_str(&raw).ok()?;
     if cached.course_id != course_id || cached.lti_tool_id != lti_tool_id {
@@ -120,6 +115,70 @@ pub(super) fn load_from_path(
         return None;
     }
     Some(cached.into_bootstrap())
+}
+
+/// prod 调用面：保存到默认 sub_session 路径。失败上抛（save 写不下文件是问题）。
+fn save(course_id: u64, lti_tool_id: u64, b: &Bootstrap) -> Result<()> {
+    let path = bootstrap_cache_path(course_id, lti_tool_id)?;
+    save_to_path(&path, course_id, lti_tool_id, b)
+}
+
+/// prod 调用面：从默认 sub_session 路径加载。任一不通过返 None。
+fn load(course_id: u64, lti_tool_id: u64) -> Option<Bootstrap> {
+    let path = bootstrap_cache_path(course_id, lti_tool_id).ok()?;
+    load_from_path(&path, course_id, lti_tool_id)
+}
+
+/// 主入口：命中返缓存，未命中调 auth::lti_launch + 保存（失败仅 warn）。
+pub(super) async fn lti_launch_cached(course_id: u64, lti_tool_id: u64) -> Result<Bootstrap> {
+    if let Some(cached) = load(course_id, lti_tool_id) {
+        debug!(course_id, lti_tool_id, "Bootstrap 缓存命中（TTL 内）");
+        return Ok(cached);
+    }
+    let bootstrap = super::auth::lti_launch(course_id, lti_tool_id).await?;
+    if let Err(e) = save(course_id, lti_tool_id, &bootstrap) {
+        warn!(?e, course_id, lti_tool_id, "Bootstrap 缓存保存失败，本次仍正常使用");
+    }
+    Ok(bootstrap)
+}
+
+/// 清缓存：删 `canvas_video_bootstrap_*.json` 文件。
+/// - `(Some, Some)` → 删该具体文件
+/// - `(Some, None)` → 删同 course_id 的所有 tool_id
+/// - `(None, _)` → 删所有
+pub(super) fn clear(course_id: Option<u64>, lti_tool_id: Option<u64>) -> Result<u64> {
+    let dir = crate::config::sub_sessions_dir()?;
+    if !dir.exists() {
+        return Ok(0);
+    }
+    if let (Some(c), Some(t)) = (course_id, lti_tool_id) {
+        let path = bootstrap_cache_path(c, t)?;
+        return if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("删除 {} 失败", path.display()))?;
+            Ok(1)
+        } else {
+            Ok(0)
+        };
+    }
+    let prefix = match course_id {
+        Some(c) => format!("{FILE_PREFIX}{c}_"),
+        None => FILE_PREFIX.to_string(),
+    };
+    let mut count = 0u64;
+    for entry in std::fs::read_dir(&dir)
+        .with_context(|| format!("read_dir {} 失败", dir.display()))?
+    {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(&prefix) && name.ends_with(".json") {
+            std::fs::remove_file(entry.path())
+                .with_context(|| format!("删除 {:?} 失败", entry.path()))?;
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 /// Unix 收 600 权限（cookies/io.rs 同款）。Windows 暂留 ACL TODO。
