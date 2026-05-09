@@ -11,7 +11,8 @@ use anyhow::Result;
 use reqwest::Client as HttpClient;
 
 use super::api_form::post_form;
-use super::auth::{lti_launch, url_encode_component};
+use super::auth::url_encode_component;
+use super::cache;
 use super::http::{build_http_client, post_json, BASE};
 use super::models::{Bootstrap, FindListPage, FindListRequest, FindListResponse, LectureVideo};
 use super::models_video::{GetVideoInfosResponse, VideoInfoData};
@@ -45,7 +46,7 @@ impl Client {
     /// `lti_tool_id` 默认 8329（"课堂视频new"）。主 session 由内部 cas_login 读磁盘。
     /// 失败时上抛 `UpstreamError`，上层在 envelope 里渲染。
     pub async fn connect(course_id: u64, lti_tool_id: u64) -> Result<Self> {
-        let bootstrap = lti_launch(course_id, lti_tool_id).await?;
+        let bootstrap = cache::lti_launch_cached(course_id, lti_tool_id).await?;
         let http = build_http_client(&bootstrap.session_cookies)?;
         Ok(Self {
             http,
