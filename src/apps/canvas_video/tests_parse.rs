@@ -244,3 +244,44 @@ async fn post_json_propagates_non_2xx_with_snippet() {
     assert!(msg.contains("status=500"), "应带 status：{msg}");
     assert!(msg.contains("internal err snippet"), "应带 snippet：{msg}");
 }
+
+/// V5.A：CachedBootstrap 序列化 round-trip 完整保留所有字段。
+#[test]
+fn cache_round_trip() {
+    use super::cache;
+    use super::models::Bootstrap;
+    use crate::cookies::Cookie;
+
+    let path = std::env::temp_dir().join("sjtu_cli_v5a_round_trip.json");
+    let _ = std::fs::remove_file(&path);
+
+    let bootstrap = Bootstrap {
+        token: "eyJhbGciOiJIUzUxMiJ9.STUB.SIG".to_string(),
+        cour_id: "abc/+def==".to_string(),
+        lti_course_id: "0123456789abcdef0123456789abcdef".to_string(),
+        session_cookies: vec![Cookie {
+            name: "JSESSIONID".to_string(),
+            value: "VALUE_X".to_string(),
+            domain: Some("v.sjtu.edu.cn".to_string()),
+            path: Some("/".to_string()),
+            expires: None,
+        }],
+    };
+
+    cache::save_to_path(&path, 88168, 8329, &bootstrap).unwrap();
+    let loaded = cache::load_from_path(&path, 88168, 8329).expect("应能加载并通过校验");
+
+    assert_eq!(loaded.token, bootstrap.token);
+    assert_eq!(loaded.cour_id, bootstrap.cour_id);
+    assert_eq!(loaded.lti_course_id, bootstrap.lti_course_id);
+    assert_eq!(loaded.session_cookies.len(), 1);
+    assert_eq!(loaded.session_cookies[0].name, "JSESSIONID");
+    assert_eq!(loaded.session_cookies[0].value, "VALUE_X");
+
+    // course_id 错配 → load 返 None
+    assert!(cache::load_from_path(&path, 99999, 8329).is_none());
+    // lti_tool_id 错配 → load 返 None
+    assert!(cache::load_from_path(&path, 88168, 9999).is_none());
+
+    let _ = std::fs::remove_file(&path);
+}
