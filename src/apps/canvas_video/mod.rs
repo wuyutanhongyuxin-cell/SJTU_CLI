@@ -13,6 +13,7 @@ mod api;
 mod api_form;
 pub mod auth;
 mod auth_chrome;
+mod cache;
 pub mod download;
 pub mod ffmpeg;
 mod http;
