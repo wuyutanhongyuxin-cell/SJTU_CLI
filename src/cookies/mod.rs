@@ -15,7 +15,7 @@ mod tests;
 
 pub use io::{
     clear_session, clear_sub_session, load_session, load_sub_session, save_session,
-    save_sub_session,
+    save_sub_session, sub_session_path,
 };
 
 /// 单条 cookie。唯一性按 RFC 6265 §5.3 用 (name, domain, path) 三元组判定；

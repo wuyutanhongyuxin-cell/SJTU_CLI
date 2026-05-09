@@ -41,7 +41,7 @@ pub fn clear_session() -> Result<()> {
 }
 
 /// 子系统 session 路径，带路径注入防御。
-pub(super) fn sub_session_path(name: &str) -> Result<std::path::PathBuf> {
+pub fn sub_session_path(name: &str) -> Result<std::path::PathBuf> {
     if name.is_empty() || name.contains(['/', '\\', '.', ' ']) {
         return Err(SjtuCliError::InvalidInput(format!(
             "非法子系统名 `{name}`：禁止空 / `.` / 路径分隔符 / 空格"
