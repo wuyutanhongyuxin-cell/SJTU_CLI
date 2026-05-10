@@ -19,6 +19,7 @@ pub mod ffmpeg;
 mod http;
 mod models;
 mod models_video;
+pub mod mp4_box;
 #[cfg(test)]
 mod tests_cache;
 #[cfg(test)]
