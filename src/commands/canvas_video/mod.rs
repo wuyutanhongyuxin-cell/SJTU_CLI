@@ -14,6 +14,7 @@ mod data;
 mod download_handler;
 mod handlers;
 mod lectures_spec;
+mod retry;
 
 pub use batch_handler::{cmd_download_batch, BatchArgs};
 pub use download_handler::{cmd_download, cmd_download_all};
