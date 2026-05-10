@@ -18,4 +18,4 @@ mod retry;
 
 pub use batch_handler::{cmd_download_batch, BatchArgs};
 pub use download_handler::{cmd_download, cmd_download_all};
-pub use handlers::cmd_list;
+pub use handlers::{cmd_clear_cache, cmd_list};

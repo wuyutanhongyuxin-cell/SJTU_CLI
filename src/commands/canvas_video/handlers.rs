@@ -7,11 +7,11 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::apps::canvas_video::{Client, LectureVideo};
+use crate::apps::canvas_video::{cache, Client, LectureVideo};
 use crate::error::SjtuCliError;
 use crate::output::{render, Envelope, OutputFormat};
 
-use super::data::{LectureEntry, ListData};
+use super::data::{ClearCacheData, LectureEntry, ListData};
 
 /// `sjtu canvas-video list <course_id>`：列一门课的所有讲。
 pub async fn cmd_list(
@@ -163,4 +163,20 @@ pub(super) fn redact_url(url: &str, with_identity: bool) -> String {
         Ok(u) => format!("{}://{}/...***", u.scheme(), u.host_str().unwrap_or("?")),
         Err(_) => "***".into(),
     }
+}
+
+/// `sjtu canvas-video clear-cache [--course <id>] [--all]`：清 LTI bootstrap 缓存。
+pub async fn cmd_clear_cache(course: Option<u64>, fmt: Option<OutputFormat>) -> Result<()> {
+    let cleared = cache::clear(course, None)?;
+    let scope = match course {
+        Some(c) => format!("course:{c}"),
+        None => "all".to_string(),
+    };
+    render(
+        Envelope::ok(ClearCacheData {
+            cleared_count: cleared,
+            scope,
+        }),
+        fmt,
+    )
 }

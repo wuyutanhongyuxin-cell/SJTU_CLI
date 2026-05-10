@@ -156,3 +156,12 @@ pub(super) struct BatchEntry {
     /// fail-soft 错误摘要：每路失败一条，文案脱去内部路径。
     pub errors: Vec<String>,
 }
+
+/// `sjtu canvas-video clear-cache` 的 envelope data。
+#[derive(Debug, Serialize)]
+pub(super) struct ClearCacheData {
+    /// 实际删除的缓存文件数。
+    pub cleared_count: u64,
+    /// 范围摘要：`all` 或 `course:<id>`。
+    pub scope: String,
+}
