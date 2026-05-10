@@ -17,6 +17,7 @@ pub(crate) mod cache;
 pub mod download;
 pub mod ffmpeg;
 mod http;
+pub mod m4a_mux;
 mod models;
 mod models_video;
 pub mod mp4_box;

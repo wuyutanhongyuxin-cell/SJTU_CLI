@@ -49,19 +49,7 @@ fn read_box_header_handles_pos_beyond_buf_len() {
 const FIXTURE_FASTSTART: &[u8] =
     include_bytes!("../../../../tests/fixtures/canvas_video/audio_1s_faststart.mp4");
 
-/// 从整个 mp4 文件字节里把 moov box 字节切出来（顺序扫，遇到 type=moov 即返）。
-fn extract_moov_bytes(mp4: &[u8]) -> Vec<u8> {
-    let mut pos = 0usize;
-    while pos + 8 <= mp4.len() {
-        let h = read_box_header(mp4, pos).unwrap();
-        let end = pos + h.size as usize;
-        if &h.box_type == b"moov" {
-            return mp4[pos..end].to_vec();
-        }
-        pos = end;
-    }
-    panic!("fixture 没找到 moov box");
-}
+use super::extract_moov_bytes_for_test as extract_moov_bytes;
 
 #[test]
 fn parse_moov_handles_truncated_input() {
