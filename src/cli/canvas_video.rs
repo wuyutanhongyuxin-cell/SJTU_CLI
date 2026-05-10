@@ -88,6 +88,20 @@ pub enum CanvasVideoSub {
         #[arg(long)]
         with_identity: bool,
     },
+
+    /// 清 LTI bootstrap 缓存。
+    /// 默认（无参数）= `--all`：清所有 `canvas_video_bootstrap_*.json`。
+    /// `--course <id>`：仅清该课程的所有 tool_id 缓存。
+    /// `--all` 与 `--course` 互斥。
+    ClearCache {
+        /// 仅清指定课程 ID 的缓存。与 `--all` 互斥。
+        #[arg(long, conflicts_with = "all")]
+        course: Option<u64>,
+
+        /// 显式清所有缓存。与 `--course` 互斥。默认行为已经是 `--all`，本 flag 仅作显式声明。
+        #[arg(long, default_value_t = false)]
+        all: bool,
+    },
 }
 
 /// 派发 `sjtu canvas-video <sub>` 到 `commands::canvas_video` 的 handler。
@@ -161,6 +175,10 @@ pub async fn dispatch(sub: CanvasVideoSub, fmt: Option<OutputFormat>) -> Result<
                     .await
                 }
             }
+        }
+        CanvasVideoSub::ClearCache { course, all: _ } => {
+            // `--all` 仅作显式声明；handler 用 `course == None` 区分 all vs course-specific。
+            cv_cmds::cmd_clear_cache(course, fmt).await
         }
     }
 }

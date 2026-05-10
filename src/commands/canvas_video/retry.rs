@@ -19,6 +19,7 @@ use crate::apps::canvas_video::{cache, Client};
 ///     client.list_lectures(client.cour_id(), client.lti_course_id()).await
 /// }).await?
 /// ```
+#[allow(dead_code)]
 pub(super) async fn with_token_refresh<F, Fut, T>(
     course_id: u64,
     lti_tool_id: u64,
@@ -43,6 +44,7 @@ where
 
 /// 哪些错信号意味着 token 失效该清缓存重 launch。误判成本：多跑一次 ~21s LTI launch；
 /// 漏判成本：把过期错原样上抛给用户。前者优于后者，分类宁宽勿严。
+#[allow(dead_code)]
 fn looks_like_token_invalid(e: &anyhow::Error) -> bool {
     let s = e.to_string();
     s.contains("业务失败 code") || s.contains("401") || s.contains("403") || s.contains("未授权")
