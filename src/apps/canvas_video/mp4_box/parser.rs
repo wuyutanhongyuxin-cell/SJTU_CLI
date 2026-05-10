@@ -59,7 +59,17 @@ pub struct AudioTrack {
 pub fn parse_moov(moov_bytes: &[u8]) -> Result<AudioTrack> {
     let head = read_box_header(moov_bytes, 0)?;
     if &head.box_type != b"moov" {
-        bail!("入参不是 moov box: type={:?}", head.box_type);
+        bail!(
+            "入参不是 moov box: type={}",
+            String::from_utf8_lossy(&head.box_type)
+        );
+    }
+    if (head.size as usize) > moov_bytes.len() {
+        bail!(
+            "moov box 声称大小 {} 超出缓冲区 {}",
+            head.size,
+            moov_bytes.len()
+        );
     }
     let body = &moov_bytes[head.header_len as usize..head.size as usize];
 

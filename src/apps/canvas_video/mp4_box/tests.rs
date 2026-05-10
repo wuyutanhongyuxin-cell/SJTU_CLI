@@ -64,6 +64,22 @@ fn extract_moov_bytes(mp4: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn parse_moov_handles_truncated_input() {
+    // moov header claims size 1024 but buffer only has the 8-byte header.
+    let bytes = [
+        0x00, 0x00, 0x04, 0x00, // size = 1024
+        b'm', b'o', b'o', b'v',
+    ];
+    let r = parse_moov(&bytes);
+    assert!(r.is_err());
+    let msg = format!("{}", r.unwrap_err());
+    assert!(
+        msg.contains("超出缓冲区"),
+        "应报 moov size 超出 buffer：{msg}"
+    );
+}
+
+#[test]
 fn parse_moov_faststart_extracts_aac_track() {
     let moov = extract_moov_bytes(FIXTURE_FASTSTART);
     let track = parse_moov(&moov).expect("parse moov");
