@@ -6,6 +6,11 @@
 //! 把这些表展开就得到每个 audio sample 的 (offset, size) 列表。
 
 use anyhow::{anyhow, bail, Result};
+use tracing::warn;
+
+/// stsz/stsc/stco/co64 entry count 上限。1 小时 AAC ~155000 sample；1M 留 6× 头。
+/// 防御 mp4 头部恶意 count=u32::MAX 触发 GB 级分配。
+const MAX_TABLE_ENTRIES: usize = 1_000_000;
 
 use super::parser::{iter_children, AudioTrack};
 
@@ -82,7 +87,10 @@ fn parse_stsd(body: &[u8]) -> Result<(String, u32, u8)> {
     }
     let codec_raw: [u8; 4] = entry[4..8].try_into().unwrap();
     let codec = String::from_utf8_lossy(&codec_raw).into_owned();
-    let channels = u16::from_be_bytes(entry[24..26].try_into().unwrap()) as u8;
+    // channels 字段是 u16，但 AudioTrack.channels 是 u8（实际 SJTU 视频 ≤ 8 channels）。
+    // 对极端值做 saturating cast 避免静默截断；> 255 视为 255。
+    let raw_channels = u16::from_be_bytes(entry[24..26].try_into().unwrap());
+    let channels = raw_channels.min(255) as u8;
     // sample_rate 是 16.16 fixed-point，整数部分在前 2 字节
     let sr_int = u16::from_be_bytes(entry[32..34].try_into().unwrap()) as u32;
     Ok((codec, sr_int, channels))
@@ -95,11 +103,18 @@ fn parse_stsz(body: &[u8]) -> Result<Vec<u32>> {
     }
     let sample_size = u32::from_be_bytes(body[4..8].try_into().unwrap());
     let count = u32::from_be_bytes(body[8..12].try_into().unwrap()) as usize;
+    if count > MAX_TABLE_ENTRIES {
+        bail!("entry_count 异常大: {count} > {MAX_TABLE_ENTRIES}");
+    }
     if sample_size != 0 {
         return Ok(vec![sample_size; count]);
     }
-    if body.len() < 12 + count * 4 {
-        bail!("stsz 表截断: need {} got {}", 12 + count * 4, body.len());
+    if body.len() < 12 + count.saturating_mul(4) {
+        bail!(
+            "stsz 表截断: need {} got {}",
+            12 + count.saturating_mul(4),
+            body.len()
+        );
     }
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
@@ -115,7 +130,10 @@ fn parse_stsc(body: &[u8]) -> Result<Vec<(u32, u32, u32)>> {
         bail!("stsc 截断");
     }
     let count = u32::from_be_bytes(body[4..8].try_into().unwrap()) as usize;
-    if body.len() < 8 + count * 12 {
+    if count > MAX_TABLE_ENTRIES {
+        bail!("entry_count 异常大: {count} > {MAX_TABLE_ENTRIES}");
+    }
+    if body.len() < 8 + count.saturating_mul(12) {
         bail!("stsc 表截断");
     }
     let mut out = Vec::with_capacity(count);
@@ -136,8 +154,11 @@ fn parse_stco(body: &[u8], is_64: bool) -> Result<Vec<u64>> {
         bail!("stco/co64 截断");
     }
     let count = u32::from_be_bytes(body[4..8].try_into().unwrap()) as usize;
+    if count > MAX_TABLE_ENTRIES {
+        bail!("entry_count 异常大: {count} > {MAX_TABLE_ENTRIES}");
+    }
     let entry_size = if is_64 { 8 } else { 4 };
-    if body.len() < 8 + count * entry_size {
+    if body.len() < 8 + count.saturating_mul(entry_size) {
         bail!("stco/co64 表截断");
     }
     let mut out = Vec::with_capacity(count);
@@ -155,6 +176,9 @@ fn parse_stco(body: &[u8], is_64: bool) -> Result<Vec<u64>> {
 
 /// stsc + chunk_offsets + sample_sizes → 每个 sample 的绝对偏移。
 /// stsc 描述 "第 first_chunk 起每 chunk 含 samples_per_chunk 个 sample"，按 chunk 累加 sample size 算 offset。
+///
+/// **假设：** stsc 表按 first_chunk 升序（ISO 14496-12 §8.7.4 规范要求）。malformed mp4
+/// 若 stsc 乱序可能拿到错的 samples_per_chunk，但 SJTU CDN 的 mp4 由 ffmpeg 生成不会出现。
 fn expand_sample_offsets(
     stsc: &[(u32, u32, u32)],
     chunk_offsets: &[u64],
@@ -174,7 +198,11 @@ fn expand_sample_offsets(
         let mut cur_off = chunk_off;
         for _ in 0..samples_per_chunk {
             if sample_idx >= sample_sizes.len() {
-                // chunk 表 + stsc 推算的 sample 总数 > stsz 给的 → 截断（少数 mp4 容器尾部 padding）
+                warn!(
+                    "expand_sample_offsets: stsc 推算 sample 总数超出 stsz({})，在 chunk {} 截断",
+                    sample_sizes.len(),
+                    i
+                );
                 return Ok(out);
             }
             out.push(cur_off);
@@ -183,4 +211,9 @@ fn expand_sample_offsets(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+pub(crate) fn parse_stbl_for_test(stbl_body: &[u8]) -> Result<AudioTrack> {
+    parse_stbl(stbl_body)
 }

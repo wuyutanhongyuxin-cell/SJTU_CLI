@@ -120,3 +120,27 @@ fn parse_moov_standard_layout_extracts_aac_track() {
         "sample 总字节应 10-30000 范围: {total}"
     );
 }
+
+#[test]
+fn parse_moov_rejects_oversized_table() {
+    use super::stbl::parse_stbl_for_test;
+
+    // 构造一个 stbl body：stsz 头 12 字节，sample_size=0 + sample_count=u32::MAX
+    let mut stbl = Vec::new();
+    // box header: stsz size=20 (8+12 body)
+    let body_size: u32 = 12;
+    let total_size: u32 = 8 + body_size;
+    stbl.extend_from_slice(&total_size.to_be_bytes());
+    stbl.extend_from_slice(b"stsz");
+    stbl.extend_from_slice(&[0, 0, 0, 0]); // version+flags
+    stbl.extend_from_slice(&0u32.to_be_bytes()); // sample_size = 0 (variable path)
+    stbl.extend_from_slice(&u32::MAX.to_be_bytes()); // sample_count = u32::MAX
+
+    let r = parse_stbl_for_test(&stbl);
+    assert!(r.is_err());
+    let msg = format!("{}", r.unwrap_err());
+    assert!(
+        msg.contains("entry_count 异常大") || msg.contains("entry_count"),
+        "应在 cap 处 bail：{msg}"
+    );
+}
