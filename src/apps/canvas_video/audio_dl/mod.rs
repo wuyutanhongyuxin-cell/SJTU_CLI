@@ -9,6 +9,7 @@
 
 mod client;
 mod orchestrator;
+mod ranges;
 #[cfg(test)]
 mod tests;
 

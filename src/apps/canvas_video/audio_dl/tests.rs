@@ -90,3 +90,49 @@ async fn locate_moov_falls_back_to_tail_when_head_lacks_moov() {
     );
     assert!(downloaded > 0);
 }
+
+use super::ranges::merge_ranges;
+
+#[test]
+fn merge_ranges_collapses_adjacent_samples() {
+    // 3 个紧邻 sample（gap=0），应合并成 1 个 Range
+    let samples = vec![(100u64, 50u32), (150, 50), (200, 50)];
+    let ranges = merge_ranges(&samples, 64 * 1024);
+    assert_eq!(ranges, vec![(100, 249)]);
+}
+
+#[test]
+fn merge_ranges_inlines_small_gap() {
+    // gap = 50 字节 < 64KB 阈值 → 合并
+    let samples = vec![(100u64, 50u32), (200, 50)];
+    let ranges = merge_ranges(&samples, 64 * 1024);
+    assert_eq!(ranges, vec![(100, 249)]);
+}
+
+#[test]
+fn merge_ranges_splits_on_large_gap() {
+    // gap = 100 KB > 64 KB → 不合并
+    let samples = vec![(100u64, 50u32), (100 + 50 + 100 * 1024, 50)];
+    let ranges = merge_ranges(&samples, 64 * 1024);
+    assert_eq!(ranges.len(), 2);
+}
+
+#[test]
+fn merge_ranges_handles_3000_samples() {
+    // 3000 个 sample，每 sample 500B + 偶尔 100KB gap → 应合并到 < 100 个 Range
+    let mut samples: Vec<(u64, u32)> = Vec::with_capacity(3000);
+    let mut off = 0u64;
+    for i in 0..3000 {
+        samples.push((off, 500));
+        off += 500;
+        if i % 50 == 0 {
+            off += 100 * 1024; // 100KB gap，会切
+        }
+    }
+    let ranges = merge_ranges(&samples, 64 * 1024);
+    assert!(
+        ranges.len() < 100,
+        "3000 sample 应合并到 < 100 Range，实际 {}",
+        ranges.len()
+    );
+}
