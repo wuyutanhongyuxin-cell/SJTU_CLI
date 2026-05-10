@@ -3,11 +3,13 @@
 //! 流程：connect → findVodVideoList → 过滤已审 → course_begin_time 升序 → 1-based seq
 //! → PII 字段按 `--with-identity` 展开 / 抹 → Envelope 输出。
 
+use std::future::Future;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::apps::canvas_video::{Client, LectureVideo};
+use crate::apps::canvas_video::{cache, Client, LectureVideo};
 use crate::error::SjtuCliError;
 use crate::output::{render, Envelope, OutputFormat};
 
@@ -163,4 +165,36 @@ pub(super) fn redact_url(url: &str, with_identity: bool) -> String {
         Ok(u) => format!("{}://{}/...***", u.scheme(), u.host_str().unwrap_or("?")),
         Err(_) => "***".into(),
     }
+}
+/// V5.A 业务失败回退：套外面跑一次 op；首次抛 token-invalid 错时清 cache 再跑一次。
+/// `looks_like_token_invalid` 决定哪些错触发重试；其他错原封返。
+/// T11/T12 接入：`|client| async move { client.list_lectures(...).await }`。
+pub(super) async fn with_token_refresh<F, Fut, T>(
+    course_id: u64,
+    lti_tool_id: u64,
+    op: F,
+) -> Result<T>
+where
+    F: Fn(Arc<Client>) -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let client = Arc::new(Client::connect(course_id, lti_tool_id).await?);
+    match op(client.clone()).await {
+        Ok(v) => Ok(v),
+        Err(e) if looks_like_token_invalid(&e) => {
+            tracing::warn!(course_id, lti_tool_id, error = %e, "token 疑作废，清 cache 重试");
+            cache::clear(Some(course_id), Some(lti_tool_id))?;
+            let client2 = Arc::new(Client::connect(course_id, lti_tool_id).await?);
+            op(client2).await
+        }
+        Err(e) => Err(e),
+    }
+}
+/// token 疑似失效的错误特征。宁宽勿严（误判多一次 ~21s launch；漏判用户报错）。
+fn looks_like_token_invalid(e: &anyhow::Error) -> bool {
+    let s = e.to_string();
+    s.contains("业务失败 code")
+        || s.contains("401")
+        || s.contains("403")
+        || s.contains("未授权")
 }

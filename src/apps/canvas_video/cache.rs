@@ -146,7 +146,7 @@ pub(super) async fn lti_launch_cached(course_id: u64, lti_tool_id: u64) -> Resul
 /// - `(Some, Some)` → 删该具体文件
 /// - `(Some, None)` → 删同 course_id 的所有 tool_id
 /// - `(None, _)` → 删所有
-pub(super) fn clear(course_id: Option<u64>, lti_tool_id: Option<u64>) -> Result<u64> {
+pub(crate) fn clear(course_id: Option<u64>, lti_tool_id: Option<u64>) -> Result<u64> {
     let dir = crate::config::sub_sessions_dir()?;
     if !dir.exists() {
         return Ok(0);
