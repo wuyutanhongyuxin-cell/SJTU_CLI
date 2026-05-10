@@ -1,6 +1,6 @@
 //! mp4_box 单元测试：box header 读取边界（fixture mp4 测试见 Task 2）。
 
-use super::parser::read_box_header;
+use super::parser::{parse_moov, read_box_header};
 
 #[test]
 fn read_box_header_parses_size_and_type() {
@@ -44,4 +44,40 @@ fn read_box_header_handles_pos_beyond_buf_len() {
     let bytes = [0u8; 4];
     let result = read_box_header(&bytes, 100);
     assert!(result.is_err(), "pos > buf.len() 应 Err 而不 panic");
+}
+
+const FIXTURE_FASTSTART: &[u8] =
+    include_bytes!("../../../../tests/fixtures/canvas_video/audio_1s_faststart.mp4");
+
+/// 从整个 mp4 文件字节里把 moov box 字节切出来（顺序扫，遇到 type=moov 即返）。
+fn extract_moov_bytes(mp4: &[u8]) -> Vec<u8> {
+    let mut pos = 0usize;
+    while pos + 8 <= mp4.len() {
+        let h = read_box_header(mp4, pos).unwrap();
+        let end = pos + h.size as usize;
+        if &h.box_type == b"moov" {
+            return mp4[pos..end].to_vec();
+        }
+        pos = end;
+    }
+    panic!("fixture 没找到 moov box");
+}
+
+#[test]
+fn parse_moov_faststart_extracts_aac_track() {
+    let moov = extract_moov_bytes(FIXTURE_FASTSTART);
+    let track = parse_moov(&moov).expect("parse moov");
+    assert_eq!(track.codec, "mp4a");
+    assert_eq!(track.channels, 2);
+    assert_eq!(track.sample_rate, 44100);
+    assert!(track.mvhd_timescale > 0, "mvhd_timescale 必非 0");
+    assert!(track.mdhd_timescale > 0, "mdhd_timescale 必非 0");
+    assert!(!track.stsd_raw.is_empty(), "stsd_raw 必非空");
+    // 1 秒 AAC @ 44.1kHz 通常 ~43 个 sample（1024 sample/frame × 43 ≈ 44032 → ~1s）
+    assert!(
+        track.sample_sizes.len() >= 30 && track.sample_sizes.len() <= 60,
+        "1s 音频 sample 数应在 30-60 范围: {}",
+        track.sample_sizes.len()
+    );
+    assert_eq!(track.sample_offsets.len(), track.sample_sizes.len());
 }
