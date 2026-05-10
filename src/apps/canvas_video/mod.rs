@@ -11,6 +11,7 @@
 
 mod api;
 mod api_form;
+pub mod audio_dl;
 pub mod auth;
 mod auth_chrome;
 pub(crate) mod cache;
