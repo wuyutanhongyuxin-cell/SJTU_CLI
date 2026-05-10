@@ -17,7 +17,7 @@ use crate::apps::canvas_video::{Client, LectureVideo};
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{BatchData, BatchEntry, ChannelOutput};
-use super::download_handler::{download_one_channel, prep};
+use super::download_shared::{download_one_channel, prep};
 use super::handlers::{list_audited_sorted, redact_or_full, safe_filename};
 use super::lectures_spec::parse_lectures_spec;
 

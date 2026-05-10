@@ -12,6 +12,7 @@
 mod batch_handler;
 mod data;
 mod download_handler;
+mod download_shared;
 mod handlers;
 mod lectures_spec;
 mod retry;
