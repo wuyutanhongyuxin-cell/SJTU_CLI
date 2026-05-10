@@ -37,8 +37,7 @@ pub(super) fn build_client_audio(referer: &str) -> Result<Client> {
         .tcp_nodelay(true)
         .timeout(Duration::from_secs(90))
         .connect_timeout(Duration::from_secs(15))
-        // SJTU CDN 不走系统代理（同 tests_write 经验：mockito 本地测试需排除代理）
-        .no_proxy()
+        // 保留系统代理：SJTU 用户可能需要通过企业/政府代理访问 courses.sjtu.edu.cn
         .build()
         .map_err(|e| SjtuCliError::NetworkError(format!("audio_dl client: {e}")).into())
 }

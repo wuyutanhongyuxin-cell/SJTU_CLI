@@ -36,11 +36,29 @@ pub async fn download_audio_only_to_file(
     bail!("download_audio_only_to_file 主流程见 Task 7 / Task 8")
 }
 
-/// 仅供测试使用的 moov 定位入口。
+/// 仅供测试使用的 moov 定位入口。用 no_proxy 测试 client 跳系统代理（mockito 在 127.0.0.1）。
 #[cfg(test)]
 pub(super) async fn locate_moov_for_test(url: &str, referer: &str) -> Result<(Vec<u8>, u64)> {
-    use super::client::build_client_audio;
-    let client = build_client_audio(referer)?;
+    use reqwest::header::{HeaderMap, HeaderValue, REFERER, USER_AGENT};
+
+    use crate::apps::canvas_video::http::UA;
+    let mut h = HeaderMap::new();
+    h.insert(
+        REFERER,
+        HeaderValue::from_str(referer)
+            .map_err(|e| SjtuCliError::InvalidInput(format!("Referer 非 ASCII: {e}")))?,
+    );
+    h.insert(USER_AGENT, HeaderValue::from_static(UA));
+    let client = Client::builder()
+        .default_headers(h)
+        .http1_only()
+        .pool_max_idle_per_host(0)
+        .tcp_nodelay(true)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(15))
+        .no_proxy() // 测试专属：跳系统代理（mockito 服务器在 127.0.0.1，否则被代理 503）
+        .build()
+        .map_err(|e| SjtuCliError::NetworkError(format!("test client: {e}")))?;
     locate_moov(&client, url).await
 }
 
