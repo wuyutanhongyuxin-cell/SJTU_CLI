@@ -1,4 +1,4 @@
-//! mp4_box 单元测试：fixture mp4 解析 + box header 边界。
+//! mp4_box 单元测试：box header 读取边界（fixture mp4 测试见 Task 2）。
 
 use super::parser::read_box_header;
 
@@ -36,4 +36,12 @@ fn read_box_header_handles_largesize_64bit() {
 fn read_box_header_rejects_truncated_input() {
     let bytes = [0x00, 0x00, 0x00, 0x0c, b'f', b't']; // 只 6 字节，header 至少 8
     assert!(read_box_header(&bytes, 0).is_err());
+}
+
+#[test]
+fn read_box_header_handles_pos_beyond_buf_len() {
+    // pos > buf.len() — caller miscalculated. Must Err gracefully, not panic.
+    let bytes = [0u8; 4];
+    let result = read_box_header(&bytes, 100);
+    assert!(result.is_err(), "pos > buf.len() 应 Err 而不 panic");
 }

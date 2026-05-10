@@ -153,4 +153,3 @@ pub async fn cmd_download_all(
         fmt,
     )
 }
-

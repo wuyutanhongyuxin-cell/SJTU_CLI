@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::apps::canvas_video::{download::download_to_file, ffmpeg as ff, Client, LectureVideo, VideoFetch};
+use crate::apps::canvas_video::{
+    download::download_to_file, ffmpeg as ff, Client, LectureVideo, VideoFetch,
+};
 use crate::error::SjtuCliError;
 
 use super::data::ChannelOutput;

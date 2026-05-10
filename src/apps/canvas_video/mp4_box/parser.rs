@@ -21,7 +21,7 @@ pub(super) struct BoxHeader {
 #[allow(dead_code)]
 pub(super) fn read_box_header(buf: &[u8], pos: usize) -> Result<BoxHeader> {
     if buf.len() < pos + 8 {
-        bail!("box header 截断：need 8 at {pos}, got {}", buf.len() - pos);
+        bail!("box header 截断：pos={pos}, buf.len()={}", buf.len());
     }
     let size32 = u32::from_be_bytes(buf[pos..pos + 4].try_into().unwrap());
     let box_type: [u8; 4] = buf[pos + 4..pos + 8].try_into().unwrap();
