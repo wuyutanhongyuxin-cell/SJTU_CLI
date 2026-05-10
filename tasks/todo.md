@@ -294,14 +294,21 @@
   - **改动文件**：`cli/canvas_video.rs` 166 行（加 `--lectures/--audio-only/--keep-mp4` 三 flag + dispatch 路由 batch / single / all-channels 三分支）；`commands/canvas_video/{data.rs,download_handler.rs,handlers.rs,mod.rs}`（拆 `resolve_target` / `list_audited_sorted` 到 handlers.rs 共用，DownloadData/ChannelOutput 加 `audio_path/mp4_kept` 字段）。
   - **真机指标**：① audio-only 单讲 lecture 1 ch0：105,243ms（mp4 下载 84s + ffmpeg 抽流 21s），840MB mp4 → 20MB AAC m4a（40× 压缩比，ffprobe 验过 codec=aac/codec_type=audio）；② 断点续传 lecture 1：21,133ms（仅 LTI launch，零下载零抽流），status=skipped；③ clap 互斥：`--lecture` × `--lectures` 触发硬错。
   - **行数**：所有 .rs 守 ≤200 行限（最大 batch_handler 190 / handlers 166 / data 158）。零新依赖。
-- [ ] mockito 端单测（不打真服务器）—— 已含 8 个（含 V3 `parse_get_vod_video_infos_minimal` + V4 lectures_spec × 4），`download::*` 的 Range 分片单测延后到下一轮
+- [x] **CP-V5.A LTI Bootstrap 缓存** ✅ 2026-05-10：`Client::connect()` 走 `cache::lti_launch_cached`，命中 sub_session 文件直接返 Bootstrap，未命中跑完整 LTI launch + save。30min 固定 TTL + 业务失败回退（`with_token_refresh` 在 cmd_list / cmd_download / cmd_download_all 套，token 401/403/业务码非 0 → 自动 `cache::clear` + 重 launch 一次；`cmd_download_batch` 不套，依赖 V4 fail-soft + 复跑幂等）。新 CLI：`sjtu canvas-video clear-cache [--course <id>] [--all]`。
+  - **新增文件**：`apps/canvas_video/cache.rs`（200 行；CachedBootstrap struct + save_to_path/load_from_path/chmod_600/save/load/lti_launch_cached/clear；3 单测）；`apps/canvas_video/tests_cache.rs`（45 行，cache_expired_returns_none + cache_corrupted_returns_none）；`commands/canvas_video/retry.rs`（43 行，`with_token_refresh` + `looks_like_token_invalid`，从 handlers.rs 抽出来防超 200 行）；`commands/canvas_video/download_shared.rs`（70 行，`download_one_channel` + `prep` + `DOWNLOAD_REFERER` 共享 helper，从 download_handler.rs 抽出来防超 200 行）。
+  - **改动文件**：`apps/canvas_video/{mod.rs,api.rs,tests_parse.rs}`（cache mod 注册 + `Client::connect` 一行换 + cache_round_trip 单测）；`commands/canvas_video/{data.rs,handlers.rs,download_handler.rs,batch_handler.rs,mod.rs}`（cmd_clear_cache + ClearCacheData + cmd_list/cmd_download/cmd_download_all 套 retry + import 切到 download_shared）；`cli/canvas_video.rs`（ClearCache variant + dispatch arm，clap `--course/--all` 互斥）；`cookies/{io.rs,mod.rs}`（`sub_session_path` 从 pub(super) 升 pub 给 cache.rs 用）。
+  - **真机 4 关 (2026-05-10 12:38-12:40)**：① 关 1 冷启首跑（含全新 CAS handshake + Chrome LTI launch）40.3s — 18 讲全列出；② 关 2 缓存命中 1.98s，比关 1 省 ~38s（findVodVideoList HTTP 本身吃 ~1s 是底）；③ 关 3 `clear-cache --all` 后再跑 31.1s（canvas_oc warm，纯 Chrome LTI launch）— `cleared_count=1` 确认有缓存被删；④ 关 4 cargo fmt + clippy --all-targets -D warnings + test --lib 90 全绿。
+  - **行数**：cache.rs 200 / handlers.rs 188 / download_handler.rs 156（拆出 download_shared.rs 后）/ batch_handler.rs 190 / cli 149；全部 ≤ 200 红线，零新依赖。
+  - **过程踩坑**：①plan 估 cache.rs ~100 行，实装 ~200 行（save_to_path + chmod_600 + clear 三 helper 加起来比想象大）；②handlers.rs 在 T8 直接加 with_token_refresh 卡 200 行限，T8a 拆 retry.rs 释放；③T12 后 download_handler.rs `wc -l` 215 但 PowerShell `Measure-Object -Line` 漏报 194（CRLF 处理差异），T13a 拆 download_shared.rs 真实降到 156；④canvas_oc.json 服务端过期但本地 30 天 TTL 不识别 → cas_login 用陈旧 cookie 登 Chrome 被踢 /login/canvas → V5.A 编码无关的预存边界，删 canvas_oc.json 强制 fresh CAS 即可（与 V5.A 缓存完全独立）。
+- [ ] mockito 端单测（不打真服务器）—— 已含 11 个（含 V3 `parse_get_vod_video_infos_minimal` + V4 lectures_spec × 4 + V5.A cache_round_trip / cache_expired_returns_none / cache_corrupted_returns_none），`download::*` 的 Range 分片单测延后到下一轮
 
 **留白**：
 - ~~双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2~~ ✅ V3.2 已实装（顺序跑两路 + envelope 含 `channels` array）
 - ~~批量下载 + audio-only~~ ✅ V4 已实装（`--lectures all/1-5,8` + `--audio-only` + `--keep-mp4` + fail-soft + skip + 临用临取）
-- token 时效未现场抓多次确认；CLI 不缓存，每次完整 launch 重新拿（成本 ~3-10s 可接受，单课程一学期下载是一次性场景）
-- 字幕提取：`videSrtUrl` 实测 null，有字幕的课程未现场验
-- LTI launch 缓存到 sub_session 文件（V4 实测每次 21-30s）：单课程一次性场景成本可接受；后续 V5 可加 `~/.sjtu-cli/canvas_video_bootstrap.json` TTL 1h 缓存
+- ~~LTI launch 缓存到 sub_session 文件~~ ✅ V5.A 已实装（30min TTL + 业务失败回退 + clear-cache CLI；缓存命中 ~38s 提速）
+- token 时效未现场抓多次确认；V5.A 30min 保守 TTL 远低于 token 真实 1-3h，命中率充足
+- 字幕提取：`videSrtUrl` 实测 null + 用户原话"有出入"；V5.C 调研推荐 faster-whisper + large-v3 自带语音转录走 `transcribe` 子命令（V6 实装）
+- V5.B 18 讲全量 audio-only smoke + V5.C 转录调研：留 V5.A 收口后单独触发
 
 ---
 

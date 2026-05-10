@@ -438,4 +438,44 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 
 ---
 
+## 2026-05-10 — V5.A LTI Bootstrap 缓存：行数估算与 PowerShell 计行数的双重坑
+
+**触发情境**：CP-V5.A 实装跑 subagent-driven flow，14 task 拆细 + 每 task 5 步（write test → fail → impl → pass → commit），plan 估 cache.rs ~100 行 / handlers.rs +25 行，实装时两次撞 200 行硬限。
+
+**错误模式 1**：plan 阶段对单文件代码量估偏小。`save_to_path` + `chmod_600` cfg-gate + `clear` 三路分流（具体文件 / 按 prefix 扫 / 全清）拼起来 cache.rs 实际 200 行（plan 写 ~100 行）。`with_token_refresh` 加 doc + where clause + 新 imports 让 handlers.rs 从 166 直撞 200（plan 写 +25 = 191）。
+
+**错误模式 2**：PowerShell `(Get-Content $f | Measure-Object -Line).Lines` 在 Windows CRLF 文件上**漏报 ~12 行**。subagent 报 download_handler.rs "194 行" → `wc -l`（git bash）实测 215 行。差异源于 `Measure-Object -Line` 数 newline char 的逻辑跟 Windows CRLF 处理有边界 case。
+
+**正确做法**：
+- plan 阶段对 cache / retry / shared helper 类文件按"骨架 + impl + cfg-gate + clear 类逻辑"4 块独立估行，每块 30-50 行起步，留 30% 余量
+- 行数验证统一走 `wc -l`（git bash）或 `(Get-Content $f).Count`（PS array length），不用 `Measure-Object -Line`
+- 单文件接近 200 行时立刻评估拆分，不等 200 后被动救火（V5.A 撞 200 → 临时 T8a 拆 retry.rs / T13a 拆 download_shared.rs，破坏了 commit 历史的整洁性，commit 数从 plan 的 14 个膨胀到实际 16 个）
+
+**规则**：
+- ✅ plan 阶段对每个新建 .rs 估 1.3-1.5× 实装代码量留余量
+- ✅ 行数大盘统一 `wc -l`，不用 PowerShell `Measure-Object -Line`
+- ✅ 单文件 ≥ 180 行立刻评估拆分（不等 200 撞墙）
+- ❌ 不靠 subagent 自报行数（CRLF 计数差异 + 报告精度问题）；自己 `wc -l` 兜底
+
+---
+
+## 2026-05-10 — sub_session 本地 TTL 不等于服务端 cookie 有效期
+
+**触发情境**：V5.A 真机 4 关跑关 1 时，`Client::connect → cache 未命中 → auth::lti_launch → cas_login("canvas_oc")` 路径走完，cas_login 看 `canvas_oc.json` 软 TTL 在 30 天内（2026-05-08 落盘 → 2026-06-07 软过期），跳过 CAS 重 handshake；Chrome 用陈旧 cookies 访问 oc.sjtu LTI URL → oc.sjtu 服务端 session 已实际失效，redirect 回 `/login/canvas` 静态页 → 30s 超时报"LTI 落地超时"。
+
+**错误模式**：`cookies::Session::is_expired` 用 `captured_at + 30 天` 软 TTL 标记，服务端 cookie 真实失效时间通常远短于此（oc.sjtu 实测 ≤ 2 天）。本地 TTL 通过不等于服务端会接受。
+
+**正确做法**（V5.A 没修，因属预存边界 + 跟 V5.A 缓存正交，但记下来供后续 phase）：
+- sub_session 文件应记**服务端真实 expires**（看 cookie 自身的 `expires` 字段，不是 captured_at + 固定值）
+- cas_login 路径上发现 oc.sjtu 重定向回 `/login` 类页面时：自动清 sub_session + 重 CAS 一次，不要一路走到 Chrome 30s 超时
+- 用户侧绕路：删 `~/.sjtu-cli/sub_sessions/canvas_oc.json` → cas_login 走完整 OIDC redirect chain（不需要重扫码，主 session.json 仍能签）
+
+**规则**：
+- ✅ 服务端 session 失效 ≠ 本地文件 TTL 失效；做缓存层时两个时钟分开看
+- ✅ Chrome / reqwest 拿到陈旧 cookies 被踢登录页时，要**主动**清缓存重 auth，不要让超时机制兜底
+- ❌ 不要把"文件落盘 mtime + 30 天" 当作 cookie 服务端有效期的代理
+- ❌ 不要在子系统全链路 30s 超时后才意识到 sub_session 服务端死了
+
+---
+
 <!-- 新的经验追加到此处上方，最新在上 -->
