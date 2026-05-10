@@ -20,9 +20,9 @@ mod http;
 mod models;
 mod models_video;
 #[cfg(test)]
-mod tests_parse;
-#[cfg(test)]
 mod tests_cache;
+#[cfg(test)]
+mod tests_parse;
 mod throttle;
 
 pub use api::{Client, VideoFetch};

@@ -45,8 +45,7 @@ pub async fn cmd_list(
                 .map(|(i, v)| to_entry(i as u32 + 1, v))
                 .collect();
             let cour_id_redacted = redact_or_full(client.cour_id(), with_identity);
-            let lti_course_id_redacted =
-                redact_or_full(client.lti_course_id(), with_identity);
+            let lti_course_id_redacted = redact_or_full(client.lti_course_id(), with_identity);
             Ok::<(Vec<LectureEntry>, i64, String, String), anyhow::Error>((
                 entries,
                 total_raw,

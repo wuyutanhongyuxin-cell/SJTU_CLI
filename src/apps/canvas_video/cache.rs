@@ -137,7 +137,10 @@ pub(super) async fn lti_launch_cached(course_id: u64, lti_tool_id: u64) -> Resul
     }
     let bootstrap = super::auth::lti_launch(course_id, lti_tool_id).await?;
     if let Err(e) = save(course_id, lti_tool_id, &bootstrap) {
-        warn!(?e, course_id, lti_tool_id, "Bootstrap 缓存保存失败，本次仍正常使用");
+        warn!(
+            ?e,
+            course_id, lti_tool_id, "Bootstrap 缓存保存失败，本次仍正常使用"
+        );
     }
     Ok(bootstrap)
 }
@@ -154,8 +157,7 @@ pub(crate) fn clear(course_id: Option<u64>, lti_tool_id: Option<u64>) -> Result<
     if let (Some(c), Some(t)) = (course_id, lti_tool_id) {
         let path = bootstrap_cache_path(c, t)?;
         return if path.exists() {
-            std::fs::remove_file(&path)
-                .with_context(|| format!("删除 {} 失败", path.display()))?;
+            std::fs::remove_file(&path).with_context(|| format!("删除 {} 失败", path.display()))?;
             Ok(1)
         } else {
             Ok(0)
@@ -166,8 +168,8 @@ pub(crate) fn clear(course_id: Option<u64>, lti_tool_id: Option<u64>) -> Result<
         None => FILE_PREFIX.to_string(),
     };
     let mut count = 0u64;
-    for entry in std::fs::read_dir(&dir)
-        .with_context(|| format!("read_dir {} 失败", dir.display()))?
+    for entry in
+        std::fs::read_dir(&dir).with_context(|| format!("read_dir {} 失败", dir.display()))?
     {
         let entry = entry?;
         let name = entry.file_name();
