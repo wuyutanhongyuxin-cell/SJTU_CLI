@@ -123,7 +123,7 @@ fn parse_moov_standard_layout_extracts_aac_track() {
 
 #[test]
 fn parse_moov_rejects_oversized_table() {
-    use super::stbl::parse_stbl_for_test;
+    use super::stbl::parse_stbl;
 
     // 构造一个 stbl body：stsz 头 12 字节，sample_size=0 + sample_count=u32::MAX
     let mut stbl = Vec::new();
@@ -136,7 +136,7 @@ fn parse_moov_rejects_oversized_table() {
     stbl.extend_from_slice(&0u32.to_be_bytes()); // sample_size = 0 (variable path)
     stbl.extend_from_slice(&u32::MAX.to_be_bytes()); // sample_count = u32::MAX
 
-    let r = parse_stbl_for_test(&stbl);
+    let r = parse_stbl(&stbl);
     assert!(r.is_err());
     let msg = format!("{}", r.unwrap_err());
     assert!(
