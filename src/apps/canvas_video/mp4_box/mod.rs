@@ -4,7 +4,9 @@
 //! 设计目标：parse moov 字节 → AudioTrack（含 sample 偏移/大小 + stsd 复用字节）。
 
 mod parser;
+mod stbl;
 #[cfg(test)]
 mod tests;
+mod trak;
 
 pub use parser::{parse_moov, AudioTrack};
