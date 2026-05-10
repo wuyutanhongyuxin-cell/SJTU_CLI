@@ -15,10 +15,12 @@ use build_moov::build_moov;
 #[cfg(test)]
 mod tests;
 
-/// 把 audio_track + sample_bytes 拼成最小 m4a，落到 out 路径。
+/// 把 audio_track + sample_bytes 拼成最小 m4a，落到 out。
+/// sample_bytes 必须按 audio_track.sample_offsets 顺序拼好，与 sample_sizes 一一对应。
+/// 返回写入字节数。
 ///
-/// `sample_bytes` 必须按 `audio_track.sample_offsets` 顺序拼好，与 `sample_sizes` 一一对应。
-/// 返回写入总字节数。
+/// **注意：** 走 `std::fs::write`（同步），调用方在 async 上下文里如果输出可能 > 1 MB
+/// 应包 `tokio::task::spawn_blocking`。当前 SJTU audio-only 单讲 ~20 MB，建议 spawn_blocking。
 pub fn write_m4a(out: &Path, audio_track: &AudioTrack, sample_bytes: &[u8]) -> Result<u64> {
     let total_samples: u64 = audio_track.sample_sizes.iter().map(|&s| s as u64).sum();
     if sample_bytes.len() as u64 != total_samples {
@@ -45,6 +47,12 @@ pub fn write_m4a(out: &Path, audio_track: &AudioTrack, sample_bytes: &[u8]) -> R
     buf.extend_from_slice(&final_moov);
     // mdat header
     let mdat_size = mdat_header_len + sample_bytes.len() as u64;
+    if mdat_size > u32::MAX as u64 {
+        anyhow::bail!(
+            "mdat 大小 {} > 4GB，stco 32-bit 不够用（应改 co64，目前未实装）",
+            mdat_size
+        );
+    }
     buf.extend_from_slice(&(mdat_size as u32).to_be_bytes());
     buf.extend_from_slice(b"mdat");
     buf.extend_from_slice(sample_bytes);
@@ -78,6 +86,12 @@ fn rewrite_stco(moov: &[u8], track: &AudioTrack, mdat_offset: u64) -> Result<Vec
         if off + 4 > out.len() {
             anyhow::bail!("stco 表写越界（内部 bug）");
         }
+        if cur > u32::MAX as u64 {
+            anyhow::bail!(
+                "stco offset {} > 4GB（mp4 stco 32-bit 不够用，应改 co64）",
+                cur
+            );
+        }
         out[off..off + 4].copy_from_slice(&(cur as u32).to_be_bytes());
         cur += sz as u64;
     }
@@ -93,6 +107,10 @@ fn find_box_pos(buf: &[u8], box_type: &[u8; 4]) -> Option<usize> {
         if &ty == box_type {
             return Some(pos);
         }
+        if size == 0 || pos + size > buf.len() {
+            return None;
+        }
+        // 容器类（递归进去）
         if matches!(
             &ty,
             b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl" | b"dinf"
@@ -100,9 +118,6 @@ fn find_box_pos(buf: &[u8], box_type: &[u8; 4]) -> Option<usize> {
             if let Some(inner) = find_box_pos(&buf[pos + 8..pos + size], box_type) {
                 return Some(pos + 8 + inner);
             }
-        }
-        if size == 0 {
-            return None;
         }
         pos += size;
     }

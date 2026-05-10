@@ -36,6 +36,7 @@ fn build_stbl(t: &AudioTrack) -> Vec<u8> {
     stts_body.extend_from_slice(&[0, 0, 0, 0]);
     stts_body.extend_from_slice(&1u32.to_be_bytes());
     stts_body.extend_from_slice(&(t.sample_sizes.len() as u32).to_be_bytes());
+    // AAC-LC 固定 1024 sample/frame；AAC-HE/LD 不同（SJTU CDN 视频均为 AAC-LC）。
     stts_body.extend_from_slice(&1024u32.to_be_bytes());
     let stts = wrap_box(b"stts", &stts_body);
 
