@@ -21,33 +21,40 @@ pub async fn cmd_list(
     include_unaudited: bool,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect(course_id, tool_id).await?;
-    let (raw, total_raw) = client
-        .list_lectures(client.cour_id(), client.lti_course_id())
+    let (entries, total_raw, cour_id_redacted, lti_course_id_redacted) =
+        super::retry::with_token_refresh(course_id, tool_id, |client| async move {
+            let (raw, total_raw) = client
+                .list_lectures(client.cour_id(), client.lti_course_id())
+                .await?;
+            let mut filtered: Vec<LectureVideo> = if include_unaudited {
+                raw
+            } else {
+                raw.into_iter()
+                    .filter(|v| v.vide_audit_status == Some(3))
+                    .collect()
+            };
+            filtered.sort_by(|a, b| {
+                a.course_begin_time
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(b.course_begin_time.as_deref().unwrap_or(""))
+            });
+            let entries: Vec<LectureEntry> = filtered
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| to_entry(i as u32 + 1, v))
+                .collect();
+            let cour_id_redacted = redact_or_full(client.cour_id(), with_identity);
+            let lti_course_id_redacted =
+                redact_or_full(client.lti_course_id(), with_identity);
+            Ok::<(Vec<LectureEntry>, i64, String, String), anyhow::Error>((
+                entries,
+                total_raw,
+                cour_id_redacted,
+                lti_course_id_redacted,
+            ))
+        })
         .await?;
-
-    // 过滤 + 排序 + 编号。
-    let mut filtered: Vec<LectureVideo> = if include_unaudited {
-        raw
-    } else {
-        raw.into_iter()
-            .filter(|v| v.vide_audit_status == Some(3))
-            .collect()
-    };
-    filtered.sort_by(|a, b| {
-        a.course_begin_time
-            .as_deref()
-            .unwrap_or("")
-            .cmp(b.course_begin_time.as_deref().unwrap_or(""))
-    });
-    let entries: Vec<LectureEntry> = filtered
-        .into_iter()
-        .enumerate()
-        .map(|(i, v)| to_entry(i as u32 + 1, v))
-        .collect();
-
-    let cour_id_redacted = redact_or_full(client.cour_id(), with_identity);
-    let lti_course_id_redacted = redact_or_full(client.lti_course_id(), with_identity);
 
     render(
         Envelope::ok(ListData {
