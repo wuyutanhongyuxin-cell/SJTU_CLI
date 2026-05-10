@@ -97,3 +97,26 @@ fn parse_moov_faststart_extracts_aac_track() {
     );
     assert_eq!(track.sample_offsets.len(), track.sample_sizes.len());
 }
+
+const FIXTURE_STANDARD: &[u8] =
+    include_bytes!("../../../../tests/fixtures/canvas_video/audio_1s_standard.mp4");
+
+#[test]
+fn parse_moov_standard_layout_extracts_aac_track() {
+    let moov = extract_moov_bytes(FIXTURE_STANDARD);
+    let track = parse_moov(&moov).expect("parse moov standard");
+    assert_eq!(track.codec, "mp4a");
+    assert_eq!(track.channels, 2);
+    assert_eq!(track.sample_rate, 44100);
+    // standard layout sample offset 都在 ftyp+free 之后、moov 之前的 mdat 区域 → 比 faststart 小
+    let max_off = *track.sample_offsets.iter().max().unwrap();
+    assert!(max_off > 0, "sample offset 必非 0");
+    // 每个 sample 大小至少 1 字节
+    assert!(track.sample_sizes.iter().all(|&s| s > 0));
+    // 总字节合理范围（1 秒 AAC 64kbps ≈ 8 KB；fixture 是无声源 64kbps，实际更小）
+    let total: u64 = track.sample_sizes.iter().map(|&s| s as u64).sum();
+    assert!(
+        (10..30_000).contains(&total),
+        "sample 总字节应 10-30000 范围: {total}"
+    );
+}
