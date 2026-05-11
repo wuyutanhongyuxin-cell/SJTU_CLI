@@ -8,6 +8,7 @@ use reqwest::header::{CONTENT_RANGE, RANGE};
 use reqwest::{Client, StatusCode};
 use tracing::{debug, info};
 
+use crate::apps::canvas_video::mp4_box::parse_moov;
 use crate::error::SjtuCliError;
 
 /// 头部探测大小（1 MB）。SJTU CDN moov 实测最大 ~700 KB。
@@ -33,17 +34,13 @@ pub async fn download_audio_only_to_file(
     concurrency: usize,
     referer: &str,
 ) -> Result<DownloadStats> {
-    use crate::apps::canvas_video::mp4_box::parse_moov;
-
     let client = super::client::build_client_audio(referer)?;
     let (moov_bytes, mut downloaded) = locate_moov(&client, url).await?;
     info!(moov_size = moov_bytes.len(), "moov 定位完成");
-
     let track = parse_moov(&moov_bytes).with_context(|| "parse moov（fail-soft 由调用方处理）")?;
     let total_sample_bytes: u64 = track.sample_sizes.iter().map(|&s| s as u64).sum();
     info!(codec = %track.codec, sample_count = track.sample_sizes.len(),
           total_sample_bytes, "audio track 解析完成");
-
     let samples: Vec<(u64, u32)> = track
         .sample_offsets
         .iter()
@@ -56,24 +53,19 @@ pub async fn download_audio_only_to_file(
         sample_count = samples.len(),
         "Range 合并完成"
     );
-
     let n = concurrency.max(1).min(ranges.len().max(1));
     let fetched = super::fetch::parallel_ranges(&client, url, &ranges, n).await?;
     let fetched_bytes: u64 = fetched.iter().map(|(_, b)| b.len() as u64).sum();
     downloaded += fetched_bytes;
     info!(fetched_bytes, "所有 Range 拉取完成");
-
     let sample_bytes = super::fetch::reassemble_samples(&track, &ranges, &fetched)?;
     debug_assert_eq!(sample_bytes.len() as u64, total_sample_bytes);
-
-    // write_m4a 同步 std::fs::write（~20 MB），async 上下文必须 spawn_blocking 避免堵塞 executor。
-    let dest = dest_m4a.to_path_buf();
-    let track_for_mux = track.clone();
-    let written = tokio::task::spawn_blocking(move || {
-        crate::apps::canvas_video::m4a_mux::write_m4a(&dest, &track_for_mux, &sample_bytes)
-    })
-    .await
-    .map_err(|e| SjtuCliError::NetworkError(format!("write_m4a spawn_blocking 失败: {e}")))??;
+    let written = crate::apps::canvas_video::m4a_mux::write_m4a_async(
+        dest_m4a.to_path_buf(),
+        track.clone(),
+        sample_bytes,
+    )
+    .await?;
     Ok(DownloadStats {
         written,
         downloaded,

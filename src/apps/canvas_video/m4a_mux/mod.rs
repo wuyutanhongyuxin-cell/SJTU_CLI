@@ -62,6 +62,20 @@ pub fn write_m4a(out: &Path, audio_track: &AudioTrack, sample_bytes: &[u8]) -> R
     Ok(len)
 }
 
+/// 异步 write_m4a：内部 spawn_blocking，调用方 async 上下文可直接 `await`。
+/// SJTU audio-only 单讲 ~20 MB，sync `write_m4a` 会堵塞 tokio executor 数百 ms。
+pub async fn write_m4a_async(
+    dest: std::path::PathBuf,
+    track: AudioTrack,
+    sample_bytes: Vec<u8>,
+) -> Result<u64> {
+    tokio::task::spawn_blocking(move || write_m4a(&dest, &track, &sample_bytes))
+        .await
+        .map_err(|e| {
+            crate::error::SjtuCliError::NetworkError(format!("write_m4a spawn_blocking 失败: {e}"))
+        })?
+}
+
 /// M4A 标准 ftyp box（major=M4A, minor=0x200, compat=[isom, M4A , mp42]）。
 fn ftyp_box() -> Vec<u8> {
     let body: &[u8] = b"M4A \x00\x00\x02\x00isomM4A mp42";
