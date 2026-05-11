@@ -54,6 +54,7 @@ pub async fn cmd_download_batch(args: BatchArgs) -> Result<()> {
     let mut failed = 0usize;
     let mut skipped = 0usize;
     let mut total_bytes = 0u64;
+    let mut total_bytes_downloaded = 0u64; // V5.D additive
     let n = seq_list.len();
     for (i, &seq) in seq_list.iter().enumerate() {
         let target = &audited[seq as usize - 1];
@@ -71,6 +72,7 @@ pub async fn cmd_download_batch(args: BatchArgs) -> Result<()> {
         }
         for ch in &entry.channels {
             total_bytes += ch.bytes;
+            total_bytes_downloaded += ch.bytes_downloaded; // V5.D additive
         }
         items.push(entry);
     }
@@ -87,6 +89,7 @@ pub async fn cmd_download_batch(args: BatchArgs) -> Result<()> {
             skipped,
             total_bytes,
             total_elapsed_ms: started.elapsed().as_millis(),
+            total_bytes_downloaded, // V5.D additive
             items,
         }),
         args.fmt,
@@ -173,6 +176,8 @@ fn check_skip(target: &LectureVideo, channel: i32, args: &BatchArgs) -> Option<C
         bytes: if args.audio_only { 0 } else { meta.len() },
         elapsed_ms: 0,
         mp4_url_redacted: "***skipped***".into(),
+        download_kind: "skipped".to_string(),
+        bytes_downloaded: 0,
     })
 }
 

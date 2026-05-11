@@ -29,8 +29,10 @@ pub(super) async fn prep(audio_only: bool, to_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 单 channel 下载：get_video_info → mkfilename → download_to_file → 可选 ffmpeg 抽 m4a
-/// → 可选删 mp4 → ChannelOutput。批量 handler 也复用该函数。
+/// 单 channel 下载。
+/// - audio_only && !keep_mp4 走 V5.D 新路径 audio_dl::download_audio_only_to_file（无 mp4 落盘 / 无 ffmpeg）
+///   失败时 fail-soft 回退到旧 mp4-full + ffmpeg 抽流路径。
+/// - 其他 case（非 audio_only / audio_only + keep_mp4）：旧路径（download.rs 全下 mp4）。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn download_one_channel(
     client: &Client,
@@ -47,11 +49,45 @@ pub(super) async fn download_one_channel(
     let stem = target.video_name.as_str().trim();
     let safe_stem = safe_filename(if stem.is_empty() { "video" } else { stem });
     let mp4_dest = to_dir.join(format!("{safe_stem}_ch{}.mp4", fetch.channel));
+    let m4a_dest = to_dir.join(format!("{safe_stem}_ch{}.m4a", fetch.channel));
+
+    if audio_only && !keep_mp4 {
+        // V5.D 主路径：直拉 audio + 本地 mux，零 ffmpeg
+        match crate::apps::canvas_video::audio_dl::download_audio_only_to_file(
+            &fetch.mp4_url,
+            &m4a_dest,
+            concurrency,
+            DOWNLOAD_REFERER,
+        )
+        .await
+        {
+            Ok(stats) => {
+                let out = ChannelOutput {
+                    channel: fetch.channel,
+                    // V4 quirk 保留：占位 mp4 路径（实际不落 mp4）
+                    file_path: absolutize(&mp4_dest),
+                    audio_path: Some(absolutize(&m4a_dest)),
+                    mp4_kept: false,
+                    bytes: stats.written,
+                    elapsed_ms: started.elapsed().as_millis(),
+                    mp4_url_redacted: redact_url(&fetch.mp4_url, with_identity),
+                    download_kind: "m4a-direct".to_string(),
+                    bytes_downloaded: stats.downloaded,
+                };
+                return Ok((fetch, out));
+            }
+            Err(e) => {
+                tracing::warn!(err = %e, "V5.D audio_dl 失败，回退到旧 mp4 全下 + ffmpeg 路径");
+                // 落到下面的旧路径
+            }
+        }
+    }
+
+    // 旧路径（mp4-full）：keep_mp4 / 非 audio_only / V5.D fail-soft 回退
     let bytes = download_to_file(&fetch.mp4_url, &mp4_dest, concurrency, DOWNLOAD_REFERER).await?;
     let mut audio_path: Option<String> = None;
     let mut mp4_kept = true;
     if audio_only {
-        let m4a_dest = to_dir.join(format!("{safe_stem}_ch{}.m4a", fetch.channel));
         ff::extract_audio(&mp4_dest, &m4a_dest).await?;
         audio_path = Some(absolutize(&m4a_dest));
         if !keep_mp4 {
@@ -67,6 +103,21 @@ pub(super) async fn download_one_channel(
         bytes,
         elapsed_ms: started.elapsed().as_millis(),
         mp4_url_redacted: redact_url(&fetch.mp4_url, with_identity),
+        download_kind: "mp4-full".to_string(),
+        bytes_downloaded: bytes,
     };
     Ok((fetch, out))
+}
+
+#[cfg(test)]
+mod tests {
+    /// download_kind 取值字符串 stable。下游消费方依赖这些 literal。
+    #[test]
+    fn download_kind_strings_are_stable() {
+        let expected = ["mp4-full", "m4a-direct", "skipped"];
+        for s in expected {
+            assert!(!s.is_empty());
+            assert!(!s.contains(' '));
+        }
+    }
 }

@@ -71,6 +71,8 @@ pub async fn cmd_download(
             bytes: out.bytes,
             elapsed_ms: started.elapsed().as_millis(),
             mp4_url_redacted: out.mp4_url_redacted,
+            download_kind: out.download_kind.clone(),
+            bytes_downloaded: out.bytes_downloaded,
         }),
         fmt,
     )
