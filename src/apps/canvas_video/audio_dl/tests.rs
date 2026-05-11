@@ -142,6 +142,39 @@ fn merge_ranges_empty_input_returns_empty() {
     assert_eq!(merge_ranges(&[], 64 * 1024), vec![]);
 }
 
+#[test]
+fn merge_ranges_splits_oversized_single_sample() {
+    // 单 sample size > MAX_RANGE_SIZE：切多段
+    let samples = vec![(0u64, 10 * 1024 * 1024u32)]; // 10 MB 单 sample
+    let r = super::ranges::merge_ranges(&samples, 64 * 1024);
+    assert_eq!(r.len(), 3); // 4 + 4 + 2 = 10 MB
+    assert_eq!(r[0], (0, 4 * 1024 * 1024 - 1));
+    assert_eq!(r[1], (4 * 1024 * 1024, 8 * 1024 * 1024 - 1));
+    assert_eq!(r[2], (8 * 1024 * 1024, 10 * 1024 * 1024 - 1));
+}
+
+#[test]
+fn merge_ranges_splits_merged_chunk() {
+    // 多个紧邻 sample 合并 > MAX_RANGE_SIZE：切多段
+    // 1000 × 8192 字节 = 8 192 000 字节（≈ 7.81 MB），紧邻无 gap
+    let samples: Vec<(u64, u32)> = (0..1000).map(|i| (i * 8192u64, 8192u32)).collect();
+    let r = super::ranges::merge_ranges(&samples, 64 * 1024);
+    assert_eq!(r.len(), 2); // 4 MB + 剩余 ~3.81 MB
+    assert_eq!(r[0].1 - r[0].0 + 1, 4 * 1024 * 1024);
+    assert_eq!(r[0], (0, 4 * 1024 * 1024 - 1));
+    assert_eq!(r[1].0, 4 * 1024 * 1024);
+    assert_eq!(r[1].1, 8_192_000 - 1);
+}
+
+#[test]
+fn merge_ranges_under_max_unchanged() {
+    // 合并段 < MAX_RANGE_SIZE：原样返回
+    let samples = vec![(0u64, 1024u32), (2048, 1024), (4096, 1024)];
+    let r = super::ranges::merge_ranges(&samples, 64 * 1024);
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0], (0, 5119));
+}
+
 #[tokio::test]
 #[ignore = "inter-byte abort: 35s 真等待，默认 cargo test 跳；--ignored 才跑"]
 async fn fetch_range_aborts_on_inter_byte_timeout() {
