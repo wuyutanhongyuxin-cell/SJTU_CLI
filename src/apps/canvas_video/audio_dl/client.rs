@@ -15,7 +15,6 @@ use crate::error::SjtuCliError;
 /// 通常 < 5 MB，CDN 限速 1 MB/s 也只要 5 s；90 s 给 18× 安全垫，单段卡死自动 abort）。
 /// 90 s 段级 timeout 与 chunk 间 30 s inter-byte timeout（在 orchestrator 内联）共同
 /// 守护 V5.B Phase 1 第 9 讲那种 "TCP 不断但 body 无字节流入 13 min" 场景。
-#[allow(dead_code)] // T6+ orchestrator 实装后移除
 pub(super) fn build_client_audio(referer: &str) -> Result<Client> {
     // HeaderValue::from_str 只拒绝部分控制字符；显式验证 ASCII-only 以拒绝 IDN / 非 ASCII 域名。
     if !referer.is_ascii() {

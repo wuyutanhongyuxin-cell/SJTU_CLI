@@ -8,8 +8,11 @@
 //! （V5.D 上线初期解析失败回退到旧路径）。
 
 mod client;
+mod fetch;
 mod orchestrator;
 mod ranges;
+#[cfg(test)]
+mod test_helpers;
 #[cfg(test)]
 mod tests;
 

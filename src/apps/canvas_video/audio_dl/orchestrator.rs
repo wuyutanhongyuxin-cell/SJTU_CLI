@@ -1,65 +1,76 @@
 //! audio_dl orchestrator：moov 定位 + Range 合并 + 并发拉 + mux。
 
-#![allow(dead_code)] // T7/T8 才用；该 allow 在 T8 完工时删
-
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use reqwest::header::{CONTENT_RANGE, RANGE};
 use reqwest::{Client, StatusCode};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::error::SjtuCliError;
 
-/// 头部 / 尾部 probe Range 大小，单位字节。SJTU CDN moov 实测最大 ~700 KB。
-const HEAD_PROBE_SIZE: u64 = 1024 * 1024; // 1 MB
-const TAIL_PROBE_INITIAL: u64 = 1024 * 1024; // 1 MB
-const TAIL_PROBE_MAX: u64 = 16 * 1024 * 1024; // 16 MB（仍找不到 moov 视为非常规 mp4）
-/// chunk 间无字节流入超时（V5.B Phase 1 第 9 讲事故的直接缓解）
+/// 头部探测大小（1 MB）。SJTU CDN moov 实测最大 ~700 KB。
+pub(super) const HEAD_PROBE_SIZE: u64 = 1024 * 1024;
+const TAIL_PROBE_INITIAL: u64 = 1024 * 1024;
+/// 尾部最大探测上限（16 MB），超出视为非常规 mp4。
+pub(super) const TAIL_PROBE_MAX: u64 = 16 * 1024 * 1024;
+/// chunk 间无字节流入超时（V5.B 第 9 讲事故缓解）。
 pub(super) const INTER_BYTE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub struct DownloadStats {
-    /// m4a 落盘字节数（≈ audio_track 总 sample 字节 + 容器 overhead）
+    /// m4a 落盘字节数
     pub written: u64,
-    /// 实际从 CDN 拉的字节数（≈ moov 区段 + 合并后 Range 总长）
+    /// 实际从 CDN 拉的字节数
     pub downloaded: u64,
 }
 
+/// audio-only 下载主流程：locate_moov → parse_moov → merge_ranges → 并发 Range → reassemble → mux。
 pub async fn download_audio_only_to_file(
-    _url: &str,
-    _dest_m4a: &Path,
-    _concurrency: usize,
-    _referer: &str,
+    url: &str,
+    dest_m4a: &Path,
+    concurrency: usize,
+    referer: &str,
 ) -> Result<DownloadStats> {
-    bail!("download_audio_only_to_file 主流程见 Task 7 / Task 8")
-}
+    use crate::apps::canvas_video::mp4_box::parse_moov;
 
-/// 仅供测试使用的 moov 定位入口。用 no_proxy 测试 client 跳系统代理（mockito 在 127.0.0.1）。
-#[cfg(test)]
-pub(super) async fn locate_moov_for_test(url: &str, referer: &str) -> Result<(Vec<u8>, u64)> {
-    use reqwest::header::{HeaderMap, HeaderValue, REFERER, USER_AGENT};
+    let client = super::client::build_client_audio(referer)?;
+    let (moov_bytes, mut downloaded) = locate_moov(&client, url).await?;
+    info!(moov_size = moov_bytes.len(), "moov 定位完成");
 
-    use crate::apps::canvas_video::http::UA;
-    let mut h = HeaderMap::new();
-    h.insert(
-        REFERER,
-        HeaderValue::from_str(referer)
-            .map_err(|e| SjtuCliError::InvalidInput(format!("Referer 非 ASCII: {e}")))?,
+    let track = parse_moov(&moov_bytes).with_context(|| "parse moov（fail-soft 由调用方处理）")?;
+    let total_sample_bytes: u64 = track.sample_sizes.iter().map(|&s| s as u64).sum();
+    info!(codec = %track.codec, sample_count = track.sample_sizes.len(),
+          total_sample_bytes, "audio track 解析完成");
+
+    let samples: Vec<(u64, u32)> = track
+        .sample_offsets
+        .iter()
+        .copied()
+        .zip(track.sample_sizes.iter().copied())
+        .collect();
+    let ranges = super::ranges::merge_ranges(&samples, 64 * 1024);
+    info!(
+        range_count = ranges.len(),
+        sample_count = samples.len(),
+        "Range 合并完成"
     );
-    h.insert(USER_AGENT, HeaderValue::from_static(UA));
-    let client = Client::builder()
-        .default_headers(h)
-        .http1_only()
-        .pool_max_idle_per_host(0)
-        .tcp_nodelay(true)
-        .timeout(Duration::from_secs(90))
-        .connect_timeout(Duration::from_secs(15))
-        .no_proxy() // 测试专属：跳系统代理（mockito 服务器在 127.0.0.1，否则被代理 503）
-        .build()
-        .map_err(|e| SjtuCliError::NetworkError(format!("test client: {e}")))?;
-    locate_moov(&client, url).await
+
+    let n = concurrency.max(1).min(ranges.len().max(1));
+    let fetched = super::fetch::parallel_ranges(&client, url, &ranges, n).await?;
+    let fetched_bytes: u64 = fetched.iter().map(|(_, b)| b.len() as u64).sum();
+    downloaded += fetched_bytes;
+    info!(fetched_bytes, "所有 Range 拉取完成");
+
+    let sample_bytes = super::fetch::reassemble_samples(&track, &ranges, &fetched)?;
+    debug_assert_eq!(sample_bytes.len() as u64, total_sample_bytes);
+
+    let written = crate::apps::canvas_video::m4a_mux::write_m4a(dest_m4a, &track, &sample_bytes)?;
+    Ok(DownloadStats {
+        written,
+        downloaded,
+    })
 }
 
 /// 探测 mp4 size 并定位 moov box，返回 (moov 字节, 已下载字节数)。
@@ -68,40 +79,34 @@ pub(super) async fn locate_moov(client: &Client, url: &str) -> Result<(Vec<u8>, 
     if total == 0 {
         bail!("probe size=0：{url}");
     }
-    let mut downloaded: u64 = 1; // 包含 probe 1 字节
-                                 // 1. 头部 1 MB
+    let mut dl: u64 = 1; // probe 1 字节
     let head_end = (HEAD_PROBE_SIZE - 1).min(total - 1);
     let head = fetch_range(client, url, 0, head_end).await?;
-    downloaded += head.len() as u64;
+    dl += head.len() as u64;
     if let Some((moov_pos, moov_size)) = scan_for_moov(&head) {
-        // 头部含 moov，但可能跨 1 MB 边界
         if moov_pos as u64 + moov_size <= head.len() as u64 {
-            return Ok((
-                head[moov_pos..moov_pos + moov_size as usize].to_vec(),
-                downloaded,
-            ));
+            return Ok((head[moov_pos..moov_pos + moov_size as usize].to_vec(), dl));
         }
-        // moov 跨界：补一段拿全 moov
+        // moov 跨 1 MB 边界：补拉剩余部分
         let extra_start = head.len() as u64;
         let extra_end = (moov_pos as u64 + moov_size - 1).min(total - 1);
         let extra = fetch_range(client, url, extra_start, extra_end).await?;
-        downloaded += extra.len() as u64;
+        dl += extra.len() as u64;
         let mut full = head[moov_pos..].to_vec();
         full.extend_from_slice(&extra);
         full.truncate(moov_size as usize);
-        return Ok((full, downloaded));
+        return Ok((full, dl));
     }
-    // 2. 头部不含 moov → 尾部翻倍探测
+    // 头部无 moov → 尾部翻倍探测
     let mut probe = TAIL_PROBE_INITIAL;
     while probe <= TAIL_PROBE_MAX {
         let tail_start = total.saturating_sub(probe);
         let tail = fetch_range(client, url, tail_start, total - 1).await?;
-        downloaded += tail.len() as u64;
+        dl += tail.len() as u64;
         if let Some((rel, moov_size)) = scan_for_moov(&tail) {
             if rel as u64 + moov_size <= tail.len() as u64 {
-                return Ok((tail[rel..rel + moov_size as usize].to_vec(), downloaded));
+                return Ok((tail[rel..rel + moov_size as usize].to_vec(), dl));
             }
-            // tail 已覆盖到尾部，理论不应跨界
             bail!("尾部 moov 跨边界（不可能）");
         }
         probe *= 2;
@@ -135,6 +140,7 @@ async fn probe_size(client: &Client, url: &str) -> Result<u64> {
     Ok(resp.content_length().unwrap_or(0))
 }
 
+/// 下载 `start..=end` 字节，内嵌 30 s inter-byte 超时。
 pub(super) async fn fetch_range(
     client: &Client,
     url: &str,
@@ -154,22 +160,18 @@ pub(super) async fn fetch_range(
     }
     let mut buf: Vec<u8> = Vec::with_capacity((end - start + 1) as usize);
     loop {
-        // 30 s inter-byte timeout：tokio::time::timeout 包 chunk()
         let chunk = tokio::time::timeout(INTER_BYTE_TIMEOUT, resp.chunk())
             .await
             .map_err(|_| SjtuCliError::NetworkError(format!("段 {rv} 30s 无字节流入，abort")))?
             .map_err(neterr("chunk"))?;
-        let Some(c) = chunk else {
-            break;
-        };
+        let Some(c) = chunk else { break };
         buf.extend_from_slice(&c);
     }
     debug!(start, end, len = buf.len(), "段完成");
     Ok(buf)
 }
 
-/// 在 buf 里找 moov box，返回 (相对 buf 起点的偏移, moov size)。
-/// 顺序扫顶层 box，遇到 moov 即返；若整段都不是 moov 返 None。
+/// 扫顶层 box 找 moov，返回 (偏移, size)。
 fn scan_for_moov(buf: &[u8]) -> Option<(usize, u64)> {
     let mut pos = 0usize;
     while pos + 8 <= buf.len() {

@@ -37,7 +37,6 @@ fn find_moov_offset(mp4: &[u8]) -> usize {
 
 #[tokio::test]
 async fn locate_moov_falls_back_to_tail_when_head_lacks_moov() {
-    use super::orchestrator::locate_moov_for_test;
     let mut server = Server::new_async().await;
     let total = FIXTURE_STANDARD.len();
     // HEAD probe (Range 0-0)：返 size
@@ -74,9 +73,10 @@ async fn locate_moov_falls_back_to_tail_when_head_lacks_moov() {
         .await;
 
     let url = format!("{}/v.mp4", server.url());
-    let (moov_bytes, downloaded) = locate_moov_for_test(&url, "https://courses.sjtu.edu.cn")
-        .await
-        .expect("locate moov");
+    let (moov_bytes, downloaded) =
+        super::test_helpers::locate_moov_for_test(&url, "https://courses.sjtu.edu.cn")
+            .await
+            .expect("locate moov");
     let expected_offset = find_moov_offset(FIXTURE_STANDARD);
     let expected_size = u32::from_be_bytes(
         FIXTURE_STANDARD[expected_offset..expected_offset + 4]
@@ -140,4 +140,40 @@ fn merge_ranges_handles_3000_samples() {
 #[test]
 fn merge_ranges_empty_input_returns_empty() {
     assert_eq!(merge_ranges(&[], 64 * 1024), vec![]);
+}
+
+#[tokio::test]
+async fn fetch_range_aborts_on_inter_byte_timeout() {
+    let mut server = Server::new_async().await;
+    // 模拟连接 OK 但 chunk 间隔超过 30s（>= INTER_BYTE_TIMEOUT）
+    let _m = server
+        .mock("GET", "/slow")
+        .with_status(206)
+        .with_header("content-range", "bytes 0-9/10")
+        .with_chunked_body(|w| {
+            // 先写 1 字节，sleep 35s（> 30s 超时阈值），再写剩下
+            w.write_all(b"X")?;
+            std::thread::sleep(std::time::Duration::from_secs(35));
+            w.write_all(b"YYYYYYYYY")?;
+            Ok(())
+        })
+        .create_async()
+        .await;
+    let url = format!("{}/slow", server.url());
+    let started = std::time::Instant::now();
+    let result =
+        super::test_helpers::fetch_range_for_test(&url, "https://courses.sjtu.edu.cn", 0, 9).await;
+    let elapsed = started.elapsed();
+    assert!(result.is_err(), "应在 30 s 触发 abort：{:?}", result);
+    assert!(
+        elapsed >= std::time::Duration::from_secs(28)
+            && elapsed <= std::time::Duration::from_secs(45),
+        "abort 应在 ~30 s（实际 {:?}）",
+        elapsed
+    );
+    let msg = format!("{:#}", result.unwrap_err());
+    assert!(
+        msg.contains("30s 无字节流入"),
+        "错误信息应提示 inter-byte：{msg}"
+    );
 }

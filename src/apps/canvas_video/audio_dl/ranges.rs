@@ -1,7 +1,5 @@
 //! Range 合并：将 audio sample 列表合并成稀疏 HTTP Range 请求，gap < threshold 时 inline。
 
-#![allow(dead_code)] // T8 接入后删
-
 /// audio sample (offset, size) 列表合并成连续 Range（gap < threshold 时 inline 多下）。
 /// 返回 Vec<(start_inclusive, end_inclusive)>。
 ///
