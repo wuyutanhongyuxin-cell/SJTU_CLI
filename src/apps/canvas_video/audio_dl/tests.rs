@@ -136,3 +136,8 @@ fn merge_ranges_handles_3000_samples() {
         ranges.len()
     );
 }
+
+#[test]
+fn merge_ranges_empty_input_returns_empty() {
+    assert_eq!(merge_ranges(&[], 64 * 1024), vec![]);
+}
