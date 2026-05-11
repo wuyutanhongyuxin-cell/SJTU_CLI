@@ -12,33 +12,6 @@ use crate::error::SjtuCliError;
 
 use super::orchestrator::fetch_range;
 
-/// 并发拉多个 Range，受 Semaphore 限流。
-/// 返回 Vec<(range_idx, 字节)>，顺序由 JoinSet 完成顺序决定（不保证）。
-pub(super) async fn parallel_ranges(
-    client: &Client,
-    url: &str,
-    ranges: &[(u64, u64)],
-    concurrency: usize,
-) -> Result<Vec<(usize, Vec<u8>)>> {
-    let sem = Arc::new(Semaphore::new(concurrency));
-    let mut joins = tokio::task::JoinSet::new();
-    for (i, &(s, e)) in ranges.iter().enumerate() {
-        let sem = sem.clone();
-        let cli = client.clone();
-        let url = url.to_string();
-        joins.spawn(async move {
-            let _permit = sem.acquire_owned().await.expect("semaphore closed");
-            let bytes = fetch_range_with_retry(&cli, &url, s, e).await?;
-            Ok::<_, anyhow::Error>((i, bytes))
-        });
-    }
-    let mut out: Vec<(usize, Vec<u8>)> = Vec::with_capacity(ranges.len());
-    while let Some(r) = joins.join_next().await {
-        out.push(r.map_err(|e| SjtuCliError::NetworkError(format!("task panic: {e}")))??);
-    }
-    Ok(out)
-}
-
 /// fetch_range 梯度重试，backoff [0, 3s, 10s, 25s]（与 download.rs V3.1 对齐）。
 async fn fetch_range_with_retry(
     client: &Client,
@@ -66,7 +39,6 @@ async fn fetch_range_with_retry(
 /// 策略：简单 modulo（range_idx % pool.len()）。
 /// 1201 range × 4 client 池 → 每 client ≈ 300 range，足够利用 H2 multiplex。
 /// 规避 reqwest #1276 单 client H2 高并发 buffer 阻塞 bug。
-#[allow(dead_code)] // T4 接入 orchestrator 后移除
 pub(super) fn pick_client(clients: &[Client], range_idx: usize) -> &Client {
     &clients[range_idx % clients.len()]
 }
@@ -74,8 +46,6 @@ pub(super) fn pick_client(clients: &[Client], range_idx: usize) -> &Client {
 /// V5.E-B+ 主入口：并发拉多个 Range，按 pick_client 分桶到 client 池。
 ///
 /// 返回 Vec<(range_idx, 字节)>，顺序由 JoinSet 完成顺序决定（不保证）。
-/// T4 将把 orchestrator.rs 从 parallel_ranges 切换到此函数。
-#[allow(dead_code)] // T4 接入 orchestrator 后移除
 pub(super) async fn parallel_ranges_pool(
     clients: &[Client],
     url: &str,

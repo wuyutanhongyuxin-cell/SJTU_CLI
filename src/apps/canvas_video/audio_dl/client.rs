@@ -78,16 +78,6 @@ pub(super) fn build_client_pool_audio(referer: &str) -> Result<Vec<Client>> {
     Ok(pool)
 }
 
-/// V5.D 兼容入口 — T3/T4 完成后将删除。
-///
-/// thin wrapper：单纯取 pool[0]，行为与 V5.D 相同（H1.1 or H2，视 SJTU_FORCE_HTTP1）。
-/// 保留是为了让 orchestrator.rs / tests.rs 在 T1 commit 后仍能编译；
-/// T3/T4 完成时直接删本函数。
-pub(super) fn build_client_audio(referer: &str) -> Result<Client> {
-    let pool = build_client_pool_audio(referer)?;
-    Ok(pool.into_iter().next().expect("pool 至少 1"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

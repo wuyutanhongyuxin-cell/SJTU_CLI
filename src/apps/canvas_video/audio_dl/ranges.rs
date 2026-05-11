@@ -58,14 +58,10 @@ fn push_split(out: &mut Vec<(u64, u64)>, s: u64, e: u64) {
 ///
 /// V5.D L10 实测 64 KB 表现尚可（跨 video frame 合并），用 default 兜底
 /// 0/1 sample 边界。
-// T4 接入 orchestrator 前暂时 dead_code；T4 完成后移除此 allow。
-#[allow(dead_code)]
 const P85_DEFAULT: u64 = 64 * 1024;
 /// P85 clamp 下限：< 4 KB 等于不合并（HTTP request 数爆炸）。
-#[allow(dead_code)]
 const P85_MIN: u64 = 4 * 1024;
 /// P85 clamp 上限：> 256 KB 等于合并过激（无效字节占比超 50%）。
-#[allow(dead_code)]
 const P85_MAX: u64 = 256 * 1024;
 
 /// 计算相邻 audio sample gap 分布的 P85 percentile，作为 merge_ranges 的 gap_threshold。
@@ -96,8 +92,6 @@ const P85_MAX: u64 = 256 * 1024;
 /// # Returns
 /// - 0 或 1 sample → [`P85_DEFAULT`]（无 gap 可算）
 /// - ≥ 2 sample → P85 gap clamp 到 [[`P85_MIN`], [`P85_MAX`]]
-// T4 接入 orchestrator 前暂时 dead_code；T4 完成后移除此 allow。
-#[allow(dead_code)]
 pub(super) fn compute_p85_gap(samples: &[(u64, u32)]) -> u64 {
     if samples.len() < 2 {
         return P85_DEFAULT;
