@@ -143,6 +143,7 @@ fn merge_ranges_empty_input_returns_empty() {
 }
 
 #[tokio::test]
+#[ignore = "inter-byte abort: 35s 真等待，默认 cargo test 跳；--ignored 才跑"]
 async fn fetch_range_aborts_on_inter_byte_timeout() {
     let mut server = Server::new_async().await;
     // 模拟连接 OK 但 chunk 间隔超过 30s（>= INTER_BYTE_TIMEOUT）

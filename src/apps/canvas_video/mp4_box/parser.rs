@@ -44,7 +44,7 @@ pub(super) fn read_box_header(buf: &[u8], pos: usize) -> Result<BoxHeader> {
 }
 
 /// AudioTrack：mux 时所需的全部信息。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AudioTrack {
     pub codec: String,
     pub sample_rate: u32,

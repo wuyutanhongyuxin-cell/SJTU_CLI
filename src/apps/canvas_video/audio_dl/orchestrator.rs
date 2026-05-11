@@ -66,7 +66,14 @@ pub async fn download_audio_only_to_file(
     let sample_bytes = super::fetch::reassemble_samples(&track, &ranges, &fetched)?;
     debug_assert_eq!(sample_bytes.len() as u64, total_sample_bytes);
 
-    let written = crate::apps::canvas_video::m4a_mux::write_m4a(dest_m4a, &track, &sample_bytes)?;
+    // write_m4a 同步 std::fs::write（~20 MB），async 上下文必须 spawn_blocking 避免堵塞 executor。
+    let dest = dest_m4a.to_path_buf();
+    let track_for_mux = track.clone();
+    let written = tokio::task::spawn_blocking(move || {
+        crate::apps::canvas_video::m4a_mux::write_m4a(&dest, &track_for_mux, &sample_bytes)
+    })
+    .await
+    .map_err(|e| SjtuCliError::NetworkError(format!("write_m4a spawn_blocking 失败: {e}")))??;
     Ok(DownloadStats {
         written,
         downloaded,
