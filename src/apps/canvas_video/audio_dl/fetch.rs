@@ -61,6 +61,46 @@ async fn fetch_range_with_retry(
     Err(last.expect("≥1 次尝试"))
 }
 
+/// 在 client 池里按 range_idx 哈希取一个 client。
+///
+/// 策略：简单 modulo（range_idx % pool.len()）。
+/// 1201 range × 4 client 池 → 每 client ≈ 300 range，足够利用 H2 multiplex。
+/// 规避 reqwest #1276 单 client H2 高并发 buffer 阻塞 bug。
+#[allow(dead_code)] // T4 接入 orchestrator 后移除
+pub(super) fn pick_client(clients: &[Client], range_idx: usize) -> &Client {
+    &clients[range_idx % clients.len()]
+}
+
+/// V5.E-B+ 主入口：并发拉多个 Range，按 pick_client 分桶到 client 池。
+///
+/// 返回 Vec<(range_idx, 字节)>，顺序由 JoinSet 完成顺序决定（不保证）。
+/// T4 将把 orchestrator.rs 从 parallel_ranges 切换到此函数。
+#[allow(dead_code)] // T4 接入 orchestrator 后移除
+pub(super) async fn parallel_ranges_pool(
+    clients: &[Client],
+    url: &str,
+    ranges: &[(u64, u64)],
+    concurrency: usize,
+) -> Result<Vec<(usize, Vec<u8>)>> {
+    let sem = Arc::new(Semaphore::new(concurrency));
+    let mut joins = tokio::task::JoinSet::new();
+    for (i, &(s, e)) in ranges.iter().enumerate() {
+        let sem = sem.clone();
+        let cli = pick_client(clients, i).clone();
+        let url = url.to_string();
+        joins.spawn(async move {
+            let _permit = sem.acquire_owned().await.expect("semaphore closed");
+            let bytes = fetch_range_with_retry(&cli, &url, s, e).await?;
+            Ok::<_, anyhow::Error>((i, bytes))
+        });
+    }
+    let mut out: Vec<(usize, Vec<u8>)> = Vec::with_capacity(ranges.len());
+    while let Some(r) = joins.join_next().await {
+        out.push(r.map_err(|e| SjtuCliError::NetworkError(format!("task panic: {e}")))??);
+    }
+    Ok(out)
+}
+
 /// 把若干 Range 字节按 sample 顺序拼回去。
 /// fetched: Vec<(range_idx, range_bytes)>，顺序任意。
 pub(super) fn reassemble_samples(
@@ -109,4 +149,25 @@ fn find_range_for_sample(ranges: &[(u64, u64)], offset: u64) -> Option<(usize, u
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::Client;
+
+    #[test]
+    fn pick_client_distributes_by_modulo() {
+        let pool: Vec<Client> = (0..4).map(|_| Client::new()).collect();
+        // 同一 idx 两次取同一 client（指针相等）
+        for i in 0..20 {
+            let c1 = pick_client(&pool, i);
+            let c2 = pick_client(&pool, i);
+            assert!(std::ptr::eq(c1, c2));
+        }
+        // idx N 应回到 client idx % pool.len()
+        assert!(std::ptr::eq(pick_client(&pool, 0), pick_client(&pool, 4)));
+        assert!(std::ptr::eq(pick_client(&pool, 1), pick_client(&pool, 5)));
+        assert!(std::ptr::eq(pick_client(&pool, 7), pick_client(&pool, 11)));
+    }
 }
