@@ -479,3 +479,30 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 ---
 
 <!-- 新的经验追加到此处上方，最新在上 -->
+---
+## 2026-05-11 — V5.D mp4 真实布局 + sample-level Range 工程妥协（audio-only 直下 m4a）
+
+**触发情境**：V5.B baseline 前 9 讲实测 sustained 20.7 min/讲、下 840 MB mp4 只为抽 20 MB m4a（浪费 42×）。V5.D 设计目标：parse mp4 moov → Range-fetch audio sample → 本地 mux m4a，跳过 mp4 落盘 + 跳过 ffmpeg。Phase 1 真机 smoke 一讲（L10）跑通：exit 0 / download_kind=m4a-direct / m4a 22 MB。Phase 2 9 讲 batch 跑前先把工程妥协写下来防 V5.E 重蹈。
+
+**错误模式**：
+1. **moov 位置假设错** —— V5.D 初版 `locate_moov` 用"头 1MB 探测 + 尾部翻倍 16MB 探测"策略，但 SJTU CDN mp4 是 `[ftyp 24][mdat 914 MB][moov 2.1 MB]` 三 box 结构（standard layout，mdat 占 99.7%），尾部翻倍探测从 `total - probe` 倒退总落在 **mdat 内部**，把 mdat 随机字节当 box header 解析 → 永远找不到 moov，head 探测失败后整个流程 bail
+2. **sample-level Range 含大量 video noise** —— 初设 `gap_threshold=64 KB` 让相邻 audio sample 合并。实测 mp4 是 **per-sample chunk** 布局（每 audio sample 独占一个 stco entry），audio sample 之间在 mdat 内被 video frame 分隔。gap=0 → 55699 Range CDN 不友好（HTTP overhead 主导）；gap=64KB → 1201 Range 但单段含大量 video（705 MB 下载得到 22 MB m4a，浪费比仍 32×）
+3. **新路径无降级直切** —— 第一版 V5.D 失败时直接 bail，用户拿不到任何产物。批量下载里这是灾难（前 8 讲跑完第 9 讲 bail 等于浪费 2h）
+
+**正确做法**（已落 V5.D 实装）：
+1. **从合法 box 边界开始 scan**：head 探测时追踪 mdat box header 的 size 字段，推算下一个 box 起点（`ftyp_end + mdat_size`），从那里 fetch moov。绝不假设任意 offset 是 box 头
+2. **诊断 hook 内嵌生产代码**：`dump_top_boxes(buf, max_n)` + `hex_prefix(buf, n)` 写进 `locate.rs`，`RUST_LOG=info` 让 CDN 真实 box 布局直接出现在 stderr。CDN 行为是黑盒，临时 println! 改了再删每次都得重写
+3. **保留旧路径 + 自动降级**：`download_shared.rs` 用 `match Ok / Err → tracing::warn + 落到旧 mp4-full 路径`，V5.D 失败时用户依然拿到 m4a，仅 elapsed 长（21 min 而非 ~3 min）但 envelope 完整
+4. **调研期 env 切换 fail-soft**：加 `SJTU_NO_FALLBACK=1` env var：V5.D 失败时 bypass fail-soft 直接 bail。调研期用它快速验证 V5.D 是否真工作（不被 21 min mp4-full fallback 浪费时间）。默认行为仍是 fail-soft 不变
+
+**真机验证**：
+- L10 single-lecture smoke：V5.D 主路径成功（download_kind=m4a-direct），mp4 layout 在 stderr 完整暴露（ftyp 24 / mdat 914 MB / moov 2.1 MB）
+- 1201 Range 合并 vs 55699 sample 直下：合并后 elapsed 显著降，但下载字节 705 MB（非理想 22 MB），是 V5.E chunk-level Range 的动机
+- fail-soft 兼容：去掉 `SJTU_NO_FALLBACK` 时 V5.D 失败自动落到 mp4-full + ffmpeg，envelope 仍 status=ok
+
+**规则**：
+- ✅ **mp4 box scan 必须从合法 box 边界开始**，不能假设任意 offset 是 box 头。Why：mp4 是 box 流，box 之间无 magic separator，从中间字节解析会把 payload 当 header 长度。How to apply：head 探测时记录每个 box `[type, size]`，要 jump 用累加 size，不用 `total - probe` 类倒推
+- ✅ **新优化路径必须保留旧路径 + 自动降级**：不要硬切。Why：批量下载场景下游 SP 行为不可控，新路径首次真机跑挂概率非零；硬切等于把"探索"成本转嫁到用户已投入时间。How to apply：用 `match Ok/Err` 在外层包，Err 路径走旧实现并 warn 一条 stderr，envelope 加 `download_kind` 字段标当前用了哪条路径
+- ✅ **调研用 debug switch 走环境变量，不污染默认行为**：Why：默认 fail-soft 对用户友好，但调研期 fail-soft 会掩盖新路径真实状态；CLI flag 暴露在 help 文档里是承诺向后兼容的负担。How to apply：调研开关用 `SJTU_NO_FALLBACK=1` / `SJTU_DEBUG_FOO=1` 之类 env var，文档只在 `tasks/lessons.md` 提，不进 `--help`
+- ✅ **诊断 hook 内嵌生产代码 + RUST_LOG 控制**：Why：CDN / 第三方协议黑盒，临时 println! 改了再删每次重抓信息成本高；写进生产代码用 tracing level 控制开关零成本。How to apply：解析关键数据时（mp4 box scan / TLS handshake / CAS redirect）写 `tracing::debug!(...)` 把核心字段打出来，bug 发生时 `RUST_LOG=debug` 一开即见
+- ⚠ **sample-level Range 合并对 per-sample chunk 布局 mp4 仍含大量噪声**：V5.D 当前实现的工程妥协，gap_threshold=64KB 是 1201 Range 与 705 MB 下载量之间的平衡点。Why：audio sample 在 mdat 内被 video sample 分隔，gap=0 会爆 HTTP overhead。How to apply：V5.E 改 chunk-level Range（stco/stsc 表 chunk 整体下），可把 705 MB → ~22 MB 精确等于 m4a 大小

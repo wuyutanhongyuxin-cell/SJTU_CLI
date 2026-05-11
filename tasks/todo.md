@@ -301,6 +301,14 @@
   - **行数**：cache.rs 200 / handlers.rs 188 / download_handler.rs 156（拆出 download_shared.rs 后）/ batch_handler.rs 190 / cli 149；全部 ≤ 200 红线，零新依赖。
   - **过程踩坑**：①plan 估 cache.rs ~100 行，实装 ~200 行（save_to_path + chmod_600 + clear 三 helper 加起来比想象大）；②handlers.rs 在 T8 直接加 with_token_refresh 卡 200 行限，T8a 拆 retry.rs 释放；③T12 后 download_handler.rs `wc -l` 215 但 PowerShell `Measure-Object -Line` 漏报 194（CRLF 处理差异），T13a 拆 download_shared.rs 真实降到 156；④canvas_oc.json 服务端过期但本地 30 天 TTL 不识别 → cas_login 用陈旧 cookie 登 Chrome 被踢 /login/canvas → V5.A 编码无关的预存边界，删 canvas_oc.json 强制 fresh CAS 即可（与 V5.A 缓存完全独立）。
 - [ ] mockito 端单测（不打真服务器）—— 已含 11 个（含 V3 `parse_get_vod_video_infos_minimal` + V4 lectures_spec × 4 + V5.A cache_round_trip / cache_expired_returns_none / cache_corrupted_returns_none），`download::*` 的 Range 分片单测延后到下一轮
+- [x] **CP-V5.D audio-only Range 直下 + reqwest timeout 收紧** ✅ 2026-05-11：parse mp4 moov → Range-fetch audio chunks → 本地 mux m4a，跳过 mp4 落盘 + 跳过 ffmpeg。reqwest timeout 30 min → 90 s 段级 + 30 s inter-byte（V5.B L9 卡 13 min 的直接动机）。
+  - **新增模块**：`apps/canvas_video/mp4_box/`（parser/trak/stbl/boxes 四文件 + tests，113-131 行/文件，含 8 unit tests）；`apps/canvas_video/m4a_mux/`（build_moov 重建最小 mp4 容器 + write_m4a_async spawn_blocking + 1 round-trip test）；`apps/canvas_video/audio_dl/`（locate + client + fetch + orchestrator + ranges + test_helpers 六文件，含 13 unit tests 用 mockito 启 127.0.0.1 server）。
+  - **新增 envelope 字段**：`download_kind` (mp4-full / m4a-direct / skipped) + `bytes_downloaded` 在 `ChannelOutput` / `DownloadData` / `BatchData`，老字段语义不动（additive evolution per Confluent/Conduktor/yt-dlp consensus）。
+  - **新增 env switch**：`SJTU_NO_FALLBACK=1` 调研期切换，V5.D 失败时 bypass fail-soft 直接 bail；默认仍 fail-soft 走旧 mp4-full + ffmpeg 路径。
+  - **真机 L10 single-lecture smoke 验证**：`download_kind=m4a-direct`, m4a 22 MB（vs baseline 19.5 MB 同长度讲），elapsed 6.5 min（vs baseline 20 min sustained = 3.2× 加速），bytes_downloaded 676 MB（vs mp4-full 916 MB，节省 24%）。详 `tmp/v5d_phase2/_comparison.md`。
+  - **关键 debugging 经验**：mp4 真实布局 `[ftyp 24][mdat 914 MB][moov 2.1 MB]` 不是 spec 假设的 head 1MB / tail 16MB 命中；初版 `locate_moov` 尾部翻倍探测从 `total - probe` 倒退总落在 mdat 中间 → 找不到 moov；修复后用 head 推算 mdat 后段 fetch。诊断 hook（`dump_top_boxes` + `hex_prefix`）内嵌生产代码，CDN 行为黑盒时 `RUST_LOG=info` 一开即见。详 `tasks/lessons.md` 2026-05-11 段。
+  - **行数**：locate.rs 247（超 200 含必要诊断工具，已注释说明）/ orchestrator.rs 68 / m4a_mux/mod.rs 139 / build_moov.rs 182 / 其他 < 200。114 unit tests pass / 0 fail / 1 ignored。
+- [ ] **V5.E（延后）chunk-level Range + Phase 2 完整 9 讲 batch**：V5.D 当前 sample-level Range 合并把 audio 间 video frame 也下了（705 MB vs 期望 22 MB，浪费比 32×）。改用 mp4 stco/stsc 表 chunk-level offset + size 整体下，理论可达 spec 38× 网络节省。配套：CDN 限流时 adaptive concurrency 降级 + HTTP/2 keep-alive 多路复用。Phase 2 9 讲 batch（baseline 对比）等 V5.E 优化后再跑（当前 V5.D L11 实测 retry overhead 让单讲 elapsed 抖动到 15 min+，9 讲 batch 估 2-3 h）。
 
 **留白**：
 - ~~双机位下载：MVP 默认下 `cdviChannelNum=0` 老师视角；`--all-channels` 双机位都下留 phase-2~~ ✅ V3.2 已实装（顺序跑两路 + envelope 含 `channels` array）

@@ -9,6 +9,7 @@
 
 mod client;
 mod fetch;
+mod locate;
 mod orchestrator;
 mod ranges;
 #[cfg(test)]

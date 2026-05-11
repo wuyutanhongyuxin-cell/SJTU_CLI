@@ -79,6 +79,10 @@ pub(super) async fn download_one_channel(
             Err(e) => {
                 tracing::warn!(err = %e, "V5.D audio_dl 失败，回退到旧 mp4 全下 + ffmpeg 路径");
                 // 落到下面的旧路径
+                // 诊断环境变量：SJTU_NO_FALLBACK=1 时不回退，直接 bail（仅供 V5.D 调研期使用）
+                if std::env::var("SJTU_NO_FALLBACK").as_deref() == Ok("1") {
+                    return Err(e);
+                }
             }
         }
     }

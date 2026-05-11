@@ -175,6 +175,48 @@ fn merge_ranges_under_max_unchanged() {
     assert_eq!(r[0], (0, 5119));
 }
 
+#[test]
+fn next_box_after_head_ftyp_then_huge_mdat() {
+    // ftyp(24) + mdat 头(8, size=1_000_000)：head 只覆盖 ftyp + mdat 头
+    // → next box 绝对起点 = 24 + 1_000_000 = 1_000_024
+    let mut head = Vec::new();
+    // ftyp: size=24, type='ftyp', minor + compat (16 字节内容)
+    head.extend_from_slice(&24u32.to_be_bytes());
+    head.extend_from_slice(b"ftyp");
+    head.extend_from_slice(&[0u8; 16]);
+    // mdat 头: size=1_000_000, type='mdat'
+    head.extend_from_slice(&1_000_000u32.to_be_bytes());
+    head.extend_from_slice(b"mdat");
+    // 不补 mdat body（模拟 head 1MB 只截到 mdat 头）
+    let r = super::locate::next_box_after_head_for_test(&head);
+    assert_eq!(r, Some(1_000_024));
+}
+
+#[test]
+fn next_box_after_head_box_size_zero_means_eof() {
+    // ftyp + 一个 size=0 box（伸展到 EOF）→ None
+    let mut head = Vec::new();
+    head.extend_from_slice(&24u32.to_be_bytes());
+    head.extend_from_slice(b"ftyp");
+    head.extend_from_slice(&[0u8; 16]);
+    head.extend_from_slice(&0u32.to_be_bytes()); // size=0
+    head.extend_from_slice(b"mdat");
+    let r = super::locate::next_box_after_head_for_test(&head);
+    assert_eq!(r, None);
+}
+
+#[test]
+fn next_box_after_head_all_within_head() {
+    // 全部 box 都在 head 内，最后 pos == head.len() → Some(pos)
+    let mut head = Vec::new();
+    head.extend_from_slice(&8u32.to_be_bytes());
+    head.extend_from_slice(b"free");
+    head.extend_from_slice(&8u32.to_be_bytes());
+    head.extend_from_slice(b"free");
+    let r = super::locate::next_box_after_head_for_test(&head);
+    assert_eq!(r, Some(16));
+}
+
 #[tokio::test]
 #[ignore = "inter-byte abort: 35s 真等待，默认 cargo test 跳；--ignored 才跑"]
 async fn fetch_range_aborts_on_inter_byte_timeout() {
