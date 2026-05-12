@@ -80,9 +80,9 @@ pub(super) struct DownloadData {
     pub elapsed_ms: u128,
     /// mp4 URL：默认抹掉（含 `key=` 时效签名 + 服务器内部路径），with_identity 才出全文。
     pub mp4_url_redacted: String,
-    /// V5.D additive：见 ChannelOutput.download_kind 注释。
+    /// 下载入口标识。取值见 ChannelOutput.download_kind。
     pub download_kind: String,
-    /// V5.D additive：见 ChannelOutput.bytes_downloaded 注释。
+    /// 实际从 CDN 拉的字节数。mp4-full 路径下等于 `bytes`。
     pub bytes_downloaded: u64,
 }
 
@@ -113,17 +113,15 @@ pub(super) struct ChannelOutput {
     pub audio_path: Option<String>,
     /// `audio_only && !keep_mp4` 时为 false。
     pub mp4_kept: bool,
-    /// 单一文件主产物字节数。旧 mp4-full 路径 = mp4 大小；V5.D m4a-direct = m4a 大小。
+    /// 单一文件主产物字节数（mp4 大小，或 audio_only && !keep_mp4 模式下 mp4 删前的原始大小）。
     pub bytes: u64,
     pub elapsed_ms: u128,
     pub mp4_url_redacted: String,
-    /// V5.D additive：下载入口标识。
-    /// `mp4-full` = 旧路径（download.rs 全下 mp4，可选 ffmpeg 抽流）
-    /// `m4a-direct` = V5.D audio_dl Range 直拉 audio sample 本地 mux m4a
+    /// 下载入口标识。
+    /// `mp4-full` = download.rs 全下 mp4，可选 ffmpeg 抽流
     /// `skipped` = batch 模式 dest 已存在
     pub download_kind: String,
-    /// V5.D additive：实际从 CDN 拉的字节数。
-    /// `mp4-full` = bytes（mp4 全下）；`m4a-direct` ≈ moov + audio samples + Range merge gap
+    /// 实际从 CDN 拉的字节数。mp4-full 路径下等于 `bytes`。
     pub bytes_downloaded: u64,
 }
 
@@ -151,7 +149,7 @@ pub(super) struct BatchData {
     pub total_bytes: u64,
     /// 总耗时（含 ffmpeg）。
     pub total_elapsed_ms: u128,
-    /// V5.D additive：批量下载从 CDN 实际拉的字节累计。等价 sum(items[].channels[].bytes_downloaded)。
+    /// 批量下载从 CDN 实际拉的字节累计。等价 sum(items[].channels[].bytes_downloaded)。
     pub total_bytes_downloaded: u64,
     /// 每讲一条。顺序按展开后讲序。
     pub items: Vec<BatchEntry>,

@@ -30,9 +30,8 @@ pub(super) async fn prep(audio_only: bool, to_dir: &Path) -> Result<()> {
 }
 
 /// 单 channel 下载。
-/// - audio_only && !keep_mp4 走 V5.D 新路径 audio_dl::download_audio_only_to_file（无 mp4 落盘 / 无 ffmpeg）
-///   失败时 fail-soft 回退到旧 mp4-full + ffmpeg 抽流路径。
-/// - 其他 case（非 audio_only / audio_only + keep_mp4）：旧路径（download.rs 全下 mp4）。
+/// V5.F：单一路径 mp4-full → 可选 ffmpeg 抽 audio → audio_only && !keep_mp4 时删 mp4。
+/// V5.D + V5.E-B+ audio-only 优化整路已撤回（见 docs/superpowers/specs/2026-05-12-v5f-*.md）。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn download_one_channel(
     client: &Client,
@@ -51,43 +50,7 @@ pub(super) async fn download_one_channel(
     let mp4_dest = to_dir.join(format!("{safe_stem}_ch{}.mp4", fetch.channel));
     let m4a_dest = to_dir.join(format!("{safe_stem}_ch{}.m4a", fetch.channel));
 
-    if audio_only && !keep_mp4 {
-        // V5.D 主路径：直拉 audio + 本地 mux，零 ffmpeg
-        match crate::apps::canvas_video::audio_dl::download_audio_only_to_file(
-            &fetch.mp4_url,
-            &m4a_dest,
-            concurrency,
-            DOWNLOAD_REFERER,
-        )
-        .await
-        {
-            Ok(stats) => {
-                let out = ChannelOutput {
-                    channel: fetch.channel,
-                    // V4 quirk 保留：占位 mp4 路径（实际不落 mp4）
-                    file_path: absolutize(&mp4_dest),
-                    audio_path: Some(absolutize(&m4a_dest)),
-                    mp4_kept: false,
-                    bytes: stats.written,
-                    elapsed_ms: started.elapsed().as_millis(),
-                    mp4_url_redacted: redact_url(&fetch.mp4_url, with_identity),
-                    download_kind: "m4a-direct".to_string(),
-                    bytes_downloaded: stats.downloaded,
-                };
-                return Ok((fetch, out));
-            }
-            Err(e) => {
-                tracing::warn!(err = %e, "V5.D audio_dl 失败，回退到旧 mp4 全下 + ffmpeg 路径");
-                // 落到下面的旧路径
-                // 诊断环境变量：SJTU_NO_FALLBACK=1 时不回退，直接 bail（仅供 V5.D 调研期使用）
-                if std::env::var("SJTU_NO_FALLBACK").as_deref() == Ok("1") {
-                    return Err(e);
-                }
-            }
-        }
-    }
-
-    // 旧路径（mp4-full）：keep_mp4 / 非 audio_only / V5.D fail-soft 回退
+    // 单一路径（mp4-full）：可选 ffmpeg 抽 audio
     let bytes = download_to_file(&fetch.mp4_url, &mp4_dest, concurrency, DOWNLOAD_REFERER).await?;
     let mut audio_path: Option<String> = None;
     let mut mp4_kept = true;
@@ -118,7 +81,7 @@ mod tests {
     /// download_kind 取值字符串 stable。下游消费方依赖这些 literal。
     #[test]
     fn download_kind_strings_are_stable() {
-        let expected = ["mp4-full", "m4a-direct", "skipped"];
+        let expected = ["mp4-full", "skipped"];
         for s in expected {
             assert!(!s.is_empty());
             assert!(!s.contains(' '));
