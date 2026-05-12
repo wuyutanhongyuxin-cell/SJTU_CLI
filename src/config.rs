@@ -34,6 +34,33 @@ pub fn user_config_path() -> Result<PathBuf> {
     Ok(config_dir()?.join("config.toml"))
 }
 
+/// 解析平台 cache 目录（与 config_dir 分离，遵循 XDG / OS 标准）。
+///
+/// 平台路径（由 `directories` crate 决定）：
+/// - Linux:   `~/.cache/sjtu-cli/`
+/// - macOS:   `~/Library/Caches/edu.sjtu.sjtu-cli/`
+/// - Windows: `%LOCALAPPDATA%\sjtu\sjtu-cli\cache\`
+pub fn cache_dir() -> Result<PathBuf> {
+    let dirs = ProjectDirs::from("edu", "sjtu", "sjtu-cli")
+        .context("无法解析平台 cache 目录（HOME / LOCALAPPDATA 未设置？）")?;
+    Ok(dirs.cache_dir().to_path_buf())
+}
+
+/// jwc 周次反推 cache 文件路径：`<cache_dir>/jwc_week_cache.json`。
+pub fn jwc_week_cache_path() -> Result<PathBuf> {
+    Ok(cache_dir()?.join("jwc_week_cache.json"))
+}
+
+/// 幂等创建 cache 目录（700 权限 on Unix）。
+pub fn ensure_cache_dir() -> Result<()> {
+    let dir = cache_dir()?;
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("无法创建 cache 目录 {}", dir.display()))?;
+    #[cfg(unix)]
+    set_unix_dir_perm(&dir)?;
+    Ok(())
+}
+
 /// 幂等创建所有必要目录。
 pub fn ensure_dirs() -> Result<()> {
     let cfg = config_dir()?;
@@ -56,4 +83,35 @@ fn set_unix_dir_perm(path: &std::path::Path) -> Result<()> {
     perm.set_mode(0o700);
     std::fs::set_permissions(path, perm).context("无法设置 ~/.sjtu-cli/ 权限为 700")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_dir_returns_a_path() {
+        let path = cache_dir().expect("cache_dir 失败");
+        assert!(!path.as_os_str().is_empty(), "cache_dir 不能返回空路径");
+    }
+
+    #[test]
+    fn jwc_week_cache_path_ends_with_correct_filename() {
+        let path = jwc_week_cache_path().expect("jwc_week_cache_path 失败");
+        assert_eq!(
+            path.file_name().and_then(|s| s.to_str()),
+            Some("jwc_week_cache.json"),
+            "文件名必须是 jwc_week_cache.json"
+        );
+    }
+
+    #[test]
+    fn cache_dir_differs_from_config_dir() {
+        let c = config_dir().unwrap();
+        let cc = cache_dir().unwrap();
+        assert_ne!(
+            c, cc,
+            "cache_dir 必须和 config_dir 是不同目录（XDG / OS 标准要求）"
+        );
+    }
 }
