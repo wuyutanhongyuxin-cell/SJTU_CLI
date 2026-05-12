@@ -70,6 +70,42 @@ impl Client {
         )
         .await
     }
+
+    /// 反推今天属于第几教学周。优先读 cache（TTL 内）；miss → 调 N2154 zs=1 算 delta。
+    ///
+    /// 返回 0 = 学期未开始；超 18 = 假期/学期已结束。
+    pub async fn infer_current_week(&self, xnm: Option<&str>, xqm: Option<&str>) -> Result<u8> {
+        use super::week_cache::{
+            cache_key, cache_ttl_seconds, compute_current_week, read_cache_if_fresh, write_cache,
+        };
+        use chrono::NaiveDate;
+
+        let key = cache_key(xnm, xqm);
+        let ttl = cache_ttl_seconds(xnm, xqm);
+
+        if let Some(cw) = read_cache_if_fresh(&key, ttl) {
+            return Ok(cw);
+        }
+
+        let s = self.schedule_by_week(xnm, xqm, 1).await?;
+        // 找 xqj=1（周一）的那条；找不到退到 rqazc_list[0]。RqAzc.xqj 是 Option<u8>。
+        let week1_iso = s
+            .rqazc_list
+            .iter()
+            .find_map(|r| r.rq.as_deref().filter(|_| r.xqj == Some(1)))
+            .or_else(|| s.rqazc_list.first().and_then(|r| r.rq.as_deref()))
+            .ok_or_else(|| {
+                anyhow::anyhow!("N2154 zs=1 响应缺少 rqazcList[*].rq，无法反推当前周")
+            })?;
+
+        let week1_monday = NaiveDate::parse_from_str(week1_iso, "%Y-%m-%d")
+            .map_err(|e| anyhow::anyhow!("rqazcList[0].rq '{week1_iso}' 非 ISO 日期: {e}"))?;
+        let today = chrono::Local::now().date_naive();
+        let cw = compute_current_week(week1_monday, today);
+
+        let _ = write_cache(&key, cw);
+        Ok(cw)
+    }
 }
 
 /// 拼 N2154 form（pure 函数，便于单测）。
