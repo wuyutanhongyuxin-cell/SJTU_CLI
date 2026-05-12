@@ -10,7 +10,7 @@ mod canvas;
 mod canvas_video;
 mod elec;
 mod jwbmessage;
-mod jwc;
+pub mod jwc;
 mod services;
 mod shuiyuan;
 mod shuiyuan_args;

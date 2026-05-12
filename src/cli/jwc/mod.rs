@@ -1,13 +1,15 @@
-//! `sjtu jwc <sub>` 教务系统命令的 clap 枚举 + 派发。
+//! `sjtu jwc <sub>` 教务系统命令的 clap 枚举 + 派发（拆分入口）。
 //!
 //! 命令清单（按 §2 顺序）：
 //! - `grades`   — §2.1 N305005 学生成绩查询
 //! - `schedule` — §2.2 N2151 个人课表查询
 //! - `gpa`      — §2.3 N309131 GPA / 学积分查询（**两阶段**）
 //! - `exams`    — §2.4 N358105 考试信息查询
+//! - `today`    — 今日剩余的课（自动反推当前周）
+//! - `week`     — 整周课表（默认当前周，可 --zs N 指定）
+//! - `next`     — 接下来若干天的课
 //!
-//! 后续按 tasks/isjtu_investigation.md §2.5..§2.9 顺序补：详细成绩 / 修业 / 周课表 /
-//! 培养计划 / 毕设。每个 SP 一个 `JwcSub` variant。
+//! `Today/Week/Next` 三个 variant 的字段定义在 `schedule_cli.rs`。
 
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
@@ -15,6 +17,9 @@ use clap::{Subcommand, ValueEnum};
 use crate::apps::jwc::{GpaRank, GpaScope};
 use crate::commands::jwc as jwc_cmds;
 use crate::output::OutputFormat;
+
+mod schedule_cli;
+pub use schedule_cli::{NextArgs, TodayArgs, WeekArgs};
 
 /// `sjtu jwc gpa --scope` 的 ValueEnum。
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -122,6 +127,13 @@ pub enum JwcSub {
         #[arg(long, default_value_t = 50)]
         limit: u32,
     },
+
+    /// 今日剩余的课（自动反推当前周）。
+    Today(TodayArgs),
+    /// 整周课表（默认当前周，可 --zs N 指定）。
+    Week(WeekArgs),
+    /// 接下来若干天的课（默认 within=1 = 今天剩余）。
+    Next(NextArgs),
 }
 
 /// 派发 `sjtu jwc <sub>` 到 `commands::jwc` 的 handler。
@@ -146,5 +158,8 @@ pub async fn dispatch(sub: JwcSub, fmt: Option<OutputFormat>) -> Result<()> {
             page,
             limit,
         } => jwc_cmds::cmd_exams(xnm, xqm, page, limit, fmt).await,
+        JwcSub::Today(a) => jwc_cmds::cmd_today(a.xnm, a.xqm, a.grid, fmt).await,
+        JwcSub::Week(a) => jwc_cmds::cmd_week(a.xnm, a.xqm, a.zs, a.grid, fmt).await,
+        JwcSub::Next(a) => jwc_cmds::cmd_next(a.xnm, a.xqm, a.within, a.limit, fmt).await,
     }
 }

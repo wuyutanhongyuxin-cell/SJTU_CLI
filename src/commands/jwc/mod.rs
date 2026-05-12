@@ -8,5 +8,7 @@
 
 mod data;
 mod handlers;
+mod schedule_handlers;
 
 pub use handlers::{cmd_exams, cmd_gpa, cmd_grades, cmd_schedule};
+pub use schedule_handlers::{cmd_next, cmd_today, cmd_week};
