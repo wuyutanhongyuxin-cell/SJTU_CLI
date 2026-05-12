@@ -18,11 +18,15 @@
 | `sjtu login` | JAccount 扫码登录，cookie 落盘 `~/.sjtu-cli/session.json` |
 | `sjtu status` / `logout` | session 状态查询 / 清除 |
 | `sjtu shuiyuan latest\|topic\|inbox\|search\|messages\|message` | 水源社区（shuiyuan.sjtu.edu.cn）只读 |
-| `sjtu shuiyuan reply\|like\|new-topic\|delete-*\|pm-send` | 水源写操作（默认 `--confirm`） |
+| `sjtu shuiyuan reply\|like\|new-topic\|delete-*\|pm-send\|archive-pm` | 水源写操作（默认 `--confirm`） |
 | `sjtu messages list\|show\|read-all` | 交我办消息中心（my.sjtu.edu.cn） |
 | `sjtu canvas setup\|whoami\|today\|upcoming` | Canvas LMS（oc.sjtu.edu.cn）作业 DDL |
+| `sjtu canvas-video list\|download\|clear-cache` | Canvas 课堂视频（v.sjtu.edu.cn）LTI 1.3 鉴权 + 单讲 / 批量 mp4 / `--audio-only` 抽 m4a |
+| `sjtu services pending` | 办事大厅（my.sjtu.edu.cn）待办 / 已办 / 抄送 |
+| `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
+| `sjtu jwc grades` | 教务（i.sjtu.edu.cn）成绩查询（MVP，N305005 入口）|
 
-路线图 / 未完工事项见 `tasks/todo.md`。
+路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 
 ## 快速开始
 
@@ -50,9 +54,18 @@ sjtu canvas setup                           # 粘贴 Token
 sjtu canvas upcoming --days 14 --yaml       # 未来 14 天作业 DDL
 ```
 
+Canvas 课堂视频（v.sjtu.edu.cn）走 LTI 1.3 + JAccount 复用：
+
+```bash
+sjtu canvas-video list <COURSE_ID> --tool-id <TOOL_ID> --yaml
+sjtu canvas-video download <COURSE_ID> --tool-id <TOOL_ID> --lectures 1-9 --audio-only --to ./out
+```
+
+`--audio-only` 模式临时下整个 mp4 (~916 MB/讲) → ffmpeg 抽 m4a (~22 MB) → 删 mp4，需本机预装 ffmpeg。实测：单讲 ≤ 2.5 min / 9 讲 batch ≤ 16 min（V5.F 真机 baseline）。性能优化复盘见 `docs/superpowers/research/2026-05-12-v5-series-retrospective.md`。
+
 ## 技术栈
 
-Rust 2021 / clap 4 / reqwest / tokio / headless_chrome。依赖见 `Cargo.toml`。
+Rust 2021 / clap 4 / reqwest（H1.1 + rustls）/ tokio / headless_chrome（QR 登录）/ rust_decimal（金额硬约束）/ ffmpeg（可选，Canvas Video `--audio-only` 抽流）。依赖见 `Cargo.toml`。
 
 ## 许可
 

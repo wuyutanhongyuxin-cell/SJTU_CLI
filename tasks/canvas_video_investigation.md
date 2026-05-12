@@ -329,12 +329,32 @@ sjtu canvas videos download <course_id>       # 全下到 ./<course_name>/
 ## 10. CP 列表（CP-V0..CP-V4）
 
 - [x] **CP-V0** 调研（本文件）— 2026-05-07 ✅
-- [ ] **CP-V0.1** 用户口头确认契约 + 实装路线（headless_chrome vs 手刻 OIDC）
-- [ ] **CP-V1** 实装 LTI launch + token 提取 → `apps/canvas_video/auth.rs`（或 `cas_lti.rs`）
-- [ ] **CP-V2** 实装 list + 字段脱敏 → `sjtu canvas videos list <id>`（真机 16 讲全列出）
-- [ ] **CP-V3** 实装单讲下载 + Range 分片并发 → `sjtu canvas videos download <id> --lecture 1`（单讲落盘 < 文件完整可播放）
-- [ ] **CP-V4** 实装批量 + ffmpeg 音频提取 → `sjtu canvas videos download <id> --audio-only`（16 讲 m4a 全部 < 抽流无错）
-- [ ] mockito 端单测（不打真服务器）
+- [x] **CP-V0.1** 用户口头确认契约 + 实装路线（headless_chrome vs 手刻 OIDC）✅
+- [x] **CP-V1** 实装 LTI launch + token 提取 → `apps/canvas_video/auth.rs`（或 `cas_lti.rs`）✅
+- [x] **CP-V2** 实装 list + 字段脱敏 → `sjtu canvas-video list <id>`（真机 9 讲全列出）✅
+- [x] **CP-V3** 实装单讲下载 + Range 分片并发 → `sjtu canvas-video download <id> --lecture 1`（单讲落盘 + 可播放）✅
+- [x] **CP-V4** 实装批量 + ffmpeg 音频提取 → `sjtu canvas-video download <id> --lectures 1-9 --audio-only`（9 讲 m4a 全部落盘）✅
+- [x] mockito 端单测（不打真服务器）—— 91 unit tests pass ✅
+
+---
+
+## 11. V5 性能优化系列（V5.A → V5.F 2026-05-09..2026-05-12）
+
+CP-V3/V4 实装后启动 audio-only 加速路线，3 轮试错 + 1 轮收尾，最终撤回到 V5.A baseline。
+
+| 阶段 | 路径 | 单讲 / 9 讲 batch | 结果 |
+|---|---|---|---|
+| V5.A baseline | mp4-full + ffmpeg | ~2 min / ~18 min | ✅ |
+| V5.B chunk-Range | H1.1 × 8 chunk-level | 20.7 min / —（body 流挂）| ❌ |
+| V5.D sample-Range merge | gap=64KB + mp4 box parse | 6.5 min / ~60 min（705 MB）| ⚠ 偏离目标 |
+| V5.E-B+ H2 池 + Dynamic P85 | 4-Client + range 哈希分桶 | 30.5 min / > 4h | ❌ **反向退化 4.7×** |
+| **V5.F 撤回**（current）| 删 audio-only 整路，回 V5.A | **1.74 min / 15.13 min** | ✅ ≤ 25 min 余量 40% |
+
+**核心结论**：SJTU CDN 单 H1.1 sustain throughput 11.4 MB/s（fat-pipe 限速）+ moov-end mp4 + 无 audio-only endpoint，audio-only Range 优化的理论上限远高于"整下并发"。
+
+**完整复盘 + 知识沉淀**：`docs/superpowers/research/2026-05-12-v5-series-retrospective.md`（含三轮 web research 引用 / mp4 box / HTTP/2 multiplexing / Tengine 配置 / 已排除方案矩阵 / 复用规则）
+
+**lessons**：`tasks/lessons.md` 2026-05-11 段（V5.D 工程妥协）+ 2026-05-12 段（V5.F 5 条规则）
 
 ---
 
