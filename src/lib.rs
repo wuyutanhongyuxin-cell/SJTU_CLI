@@ -10,6 +10,7 @@ pub mod config;
 pub mod cookies;
 pub mod error;
 pub mod output;
+pub mod output_grid;
 pub mod util;
 
 /// 版本号，来自 Cargo.toml 的 `package.version`。
