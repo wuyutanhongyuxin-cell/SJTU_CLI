@@ -22,7 +22,7 @@ mod schedule;
 pub use exam::Exam;
 pub use gpa::Gpa;
 pub use grade::Grade;
-pub use schedule::{KbItem, Schedule};
+pub use schedule::{KbItem, RqAzc, Schedule};
 
 use serde::{Deserialize, Serialize};
 

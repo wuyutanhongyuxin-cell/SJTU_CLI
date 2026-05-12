@@ -20,9 +20,10 @@ mod api;
 mod bind;
 mod http;
 mod models;
+pub mod period_clock;
 #[cfg(test)]
 mod tests_parse;
 mod throttle;
 
 pub use api::{Client, GpaRank, GpaScope, LoginMeta};
-pub use models::{Exam, Gpa, Grade, JwcPage, KbItem, Schedule};
+pub use models::{Exam, Gpa, Grade, JwcPage, KbItem, RqAzc, Schedule};
