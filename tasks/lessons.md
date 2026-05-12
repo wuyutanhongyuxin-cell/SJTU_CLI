@@ -506,3 +506,35 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 - ✅ **调研用 debug switch 走环境变量，不污染默认行为**：Why：默认 fail-soft 对用户友好，但调研期 fail-soft 会掩盖新路径真实状态；CLI flag 暴露在 help 文档里是承诺向后兼容的负担。How to apply：调研开关用 `SJTU_NO_FALLBACK=1` / `SJTU_DEBUG_FOO=1` 之类 env var，文档只在 `tasks/lessons.md` 提，不进 `--help`
 - ✅ **诊断 hook 内嵌生产代码 + RUST_LOG 控制**：Why：CDN / 第三方协议黑盒，临时 println! 改了再删每次重抓信息成本高；写进生产代码用 tracing level 控制开关零成本。How to apply：解析关键数据时（mp4 box scan / TLS handshake / CAS redirect）写 `tracing::debug!(...)` 把核心字段打出来，bug 发生时 `RUST_LOG=debug` 一开即见
 - ⚠ **sample-level Range 合并对 per-sample chunk 布局 mp4 仍含大量噪声**：V5.D 当前实现的工程妥协，gap_threshold=64KB 是 1201 Range 与 705 MB 下载量之间的平衡点。Why：audio sample 在 mdat 内被 video sample 分隔，gap=0 会爆 HTTP overhead。How to apply：V5.E 改 chunk-level Range（stco/stsc 表 chunk 整体下），可把 705 MB → ~22 MB 精确等于 m4a 大小
+
+---
+
+## 2026-05-12 — V5.F 撤回 audio-only 整路：3 轮优化失败 → 回归 V5.A baseline
+
+**触发情境**：V5.B/D/E-B+ 三轮 audio-only 优化（每轮 4-8 day 实装 + 真机）全失败。V5.B mp4 chunk-level Range：CDN per-sample chunk 布局让 audio chunk 之间被 video 隔开，"audio chunk 整体下"实际下 705 MB；V5.D sample-level Range：1201 Range 仍 705 MB 浪费 32×；V5.E-B+ 4-Client H2 池 + Dynamic P85：基于"H2 multiplexing 1.5× 提速 + P85 自适应 gap"两个论文级假设，真机反向退化（21.6 min/讲 vs V5.A baseline 18 min/9 讲）。最终 V5.F 删除 audio_dl/m4a_mux/mp4_box 3 个目录 1500 行 + 撤回到 V5.A mp4-full + ffmpeg 单路径，9 讲 batch 15.13 min ≤ 25 min 目标。
+
+**错误模式**：
+1. **CDN 真实约束没用一次性脚本测，直接按论文/AWS S3 文档/H2 RFC 推断写代码** —— SJTU CDN 实际是 NGINX 单连接 sustained throughput cap 11.4 MB/s（这是 fat-pipe 限速，不是 RTT 瓶颈），H2 多路复用对单大文件 throughput-bound 任务**等价或更糟**，因为 multiplexing 把单连接带宽切给多个 stream 反而降低有效吞吐
+2. **B.1 ffmpeg stdin pipe 优化假设 mp4 是 faststart 格式** —— 实际 SJTU CDN mp4 是 `[ftyp 24][mdat 914 MB][moov 2.1 MB]` 三 box 的 moov-end 布局，ffmpeg stdin 无法 seek 回头读 moov，5 min hexdump 一眼看出，省下 1-2 day 写完后才发现的代价
+3. **新优化路径 fail-soft 自动降级掩盖真实退化** —— V5.E-B+ 用 `match Ok/Err → warn + 落到 mp4-full` 兜底，9 讲 batch envelope 里全部 status=ok，但实际每讲都从 H2 池失败降级回 mp4-full，21.6 min/讲完全被 fail-soft 字面成功包住，跑完后看 elapsed 才发现退化
+4. **优化路线把主线 stake 在未验证假设上** —— V5.B/D/E-B+ 三轮都在主分支推进，每轮都假定上一轮"接下来 V5.X 会修好"，导致 task #39/#41/#42 都是"延后到下一轮"状态，最终 V5.F 收尾时累计撤回 3 个目录 1500 行 + 2092 deletions
+
+**正确做法**（已落 V5.F 决策）：
+1. **CDN 性能优化前先用一次性脚本测真实约束**：curl 测单连接 throughput / hexdump 验 mp4 box 布局 / RUST_LOG=trace 看 reqwest H2 帧。5-30 min 验证 + 1-2 day 实装的成本比是 1:60；用 30 min 验证否决一个错误假设的省时是几天计
+2. **fat-pipe 限速 vs RTT 瓶颈先分清再选 H2/H3**：实测 11.4 MB/s 持续单 H1 流跑满 → throughput-bound；只有 RTT > 100ms 且单文件 < 10 MB（多请求并发场景）H2 multiplexing 才有意义。SJTU 校园网内 RTT 5-20 ms，throughput-bound 单大文件**永远不要**上 H2 池
+3. **实验性优化路径上线初期关 fail-soft**：用 `SJTU_NO_FALLBACK=1` 之类 env var 跑实验路径，看真实成功率；待验证稳定再开 fail-soft 进生产。fail-soft 是 v1.0+ 用户友好特性，不是 dev/exploration 期工具
+4. **优化探索走并行 branch，主线保持可发布 baseline**：V5.A 18 min/9 讲 + 920 MB/讲已经满足 ≤ 25 min 目标，audio-only 加速是"nice to have"。错的是 V5.B 起在主分支推进而非 sidetrack；正确做法是主线 V5.A freeze 同时开 `feat/v5b-audio-only` worktree 探索，每轮真机不达标就丢弃 branch 不污染主线
+5. **撤回决策的判定标准用绝对值而非相对值**：V5.E-B+ 反向退化 → 用户问"接下来怎么办"，给的不是"V5.F 继续优化 audio-only"而是"V5.A 已达标，撤所有 audio-only 代码"。判定：当前 baseline 是否已经满足 PRD 目标？若是，所有 nice-to-have 优化达不到就撤；不要因为已经投入 3 轮就继续投第 4 轮（sunk cost fallacy）
+
+**真机验证**（V5.F final）：
+- L10 单讲 smoke：1.74 min（目标 ≤ 2.5 min）/ 916 MB mp4 → 21.22 MB m4a / mp4_kept=false / download_kind=mp4-full
+- 9 讲 batch：907984 ms = 15.13 min（目标 ≤ 25 min，余量 40%）/ 9/9 succeeded / 0 failed / 7.86 GB 总下载 / 全部 mp4_kept=false + audio_path 落盘 / 各讲 1.49-2.25 min 全过 2.5 min 阈值
+- 代码体量：删除 audio_dl/m4a_mux/mp4_box 3 个目录共 1500 行 + 调整 download_shared.rs/data.rs + mod.rs，2 commits 共 -2092 deletions / +90 additions
+- 测试：91 unit tests passed（原 ~124，删除 audio-only 路径单测后 -33），clippy `-D warnings` 零警告，fmt 零 diff
+
+**规则**：
+- ✅ **CDN/网络优化动手前先一次性脚本测真实约束**：5-30 min 验证省 1-2 day 实装。Why：CDN 行为黑盒，论文/AWS 文档/H2 RFC 是理想模型，实际产品级 CDN 都有限速/限连接/HTTP 版本协商等隐藏约束。How to apply：任何"X 加速 Y%"假设上线前必须有 `curl/hexdump/wireshark` 一次性脚本验证支撑；脚本结果在 spec doc 里贴 hex/curl 输出
+- ✅ **H2/H3 多路复用前先分 throughput-bound vs RTT-bound**：单大文件 throughput-bound 场景 H2 等价或更糟。Why：multiplexing 优势在多 stream 共享 TCP/QUIC 拥塞窗口避免 head-of-line blocking，但单 stream 跑满 fat-pipe 时切多 stream 反而降低有效吞吐。How to apply：`reqwest::Client::builder().http1_only()` 在已知 throughput-bound 路径显式锁 H1.1，不要让协议协商自动选 H2
+- ✅ **实验性优化路径初期阶段关 fail-soft**：用 env var 切换。Why：fail-soft 是给生产用户的友好兜底，不是给开发者的探索工具；新路径首次真机几乎必然有 bug，fail-soft 会把"全部失败 + 兜底"包成 status=ok 掩盖真实成功率。How to apply：`SJTU_NO_FALLBACK=1` / `SJTU_FORCE_NEW_PATH=1` env var 在 dev 期 default-on，验证稳定后才考虑生产 default-off
+- ✅ **优化探索走并行 branch / worktree，主线保持已达标 baseline**：Why：3 轮串行在主分支推进的代价是每轮都 stake 主线进度在下一轮假设上，撤回时累计成本极大（V5.B+D+E-B+ 合计 3 周）。How to apply：主线达标后 freeze，optimization 用 `git worktree add` 开 sidetrack，每轮真机不达标 → 整个 worktree 丢弃，主线零污染
+- ✅ **撤回决策按绝对值（PRD 是否满足）而非相对值（投入了多少）**：sunk cost ignore。Why：已投入 3 轮 ≠ 应该投第 4 轮；当前 baseline 满足目标 + 优化达不到 = 撤回，与已投入工时无关。How to apply：每轮优化结束 review 时强制问"当前主线是否已满足 PRD？若是，本轮优化是否达到新承诺指标？"，两个 yes 才合并；否则丢弃
