@@ -4,7 +4,10 @@
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
-use crate::apps::jwc::{period_clock, KbItem};
+use crate::apps::jwc::{period_clock, KbItem, RqAzc};
+use crate::output_grid::{render_grid_day, render_grid_week, DayCell, WeekCell};
+
+use super::data::TodayItem;
 
 /// 过滤出在指定 `week` 周内的课表条目（oldzc bitmask 过滤；None = 不过滤）。
 pub(crate) fn filter_kb_in_week(kb: &[KbItem], week: u8) -> Vec<&KbItem> {
@@ -60,6 +63,46 @@ pub(super) fn combine_dt(d: NaiveDate, hhmm: &str) -> NaiveDateTime {
 /// NaiveDate → ISO 周几（周一=1 .. 周日=7）。
 pub(super) fn iso_weekday(d: NaiveDate) -> u8 {
     d.weekday().number_from_monday() as u8
+}
+
+/// `--grid` 模式：渲染单日表格字符串。
+pub(super) fn render_day_grid(items: &[TodayItem]) -> String {
+    let cells: Vec<DayCell> = items
+        .iter()
+        .map(|i| DayCell {
+            jc_list: i.jc_list.clone(),
+            kcmc: i.kcmc.clone().unwrap_or_default(),
+            cdmc: i.cdmc.clone().unwrap_or_default(),
+            xm: i.xm.clone().unwrap_or_default(),
+        })
+        .collect();
+    render_grid_day(&cells)
+}
+
+/// `--grid` 模式：渲染整周表格字符串（7 列 × N 节）。
+pub(super) fn render_week_grid(rqazc: &[RqAzc], items: &[TodayItem]) -> String {
+    const LABELS: [&str; 7] = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+    let dates: Vec<(String, String)> = rqazc
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            (
+                LABELS.get(i).copied().unwrap_or("").to_string(),
+                r.rq.clone().unwrap_or_default(),
+            )
+        })
+        .collect();
+    let cells: Vec<WeekCell> = items
+        .iter()
+        .map(|i| WeekCell {
+            xqj: i.xqj,
+            jc_list: i.jc_list.clone(),
+            kcmc: i.kcmc.clone().unwrap_or_default(),
+            cdmc: i.cdmc.clone().unwrap_or_default(),
+            xm: i.xm.clone().unwrap_or_default(),
+        })
+        .collect();
+    render_grid_week(&dates, &cells)
 }
 
 #[cfg(test)]

@@ -538,3 +538,37 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 - ✅ **实验性优化路径初期阶段关 fail-soft**：用 env var 切换。Why：fail-soft 是给生产用户的友好兜底，不是给开发者的探索工具；新路径首次真机几乎必然有 bug，fail-soft 会把"全部失败 + 兜底"包成 status=ok 掩盖真实成功率。How to apply：`SJTU_NO_FALLBACK=1` / `SJTU_FORCE_NEW_PATH=1` env var 在 dev 期 default-on，验证稳定后才考虑生产 default-off
 - ✅ **优化探索走并行 branch / worktree，主线保持已达标 baseline**：Why：3 轮串行在主分支推进的代价是每轮都 stake 主线进度在下一轮假设上，撤回时累计成本极大（V5.B+D+E-B+ 合计 3 周）。How to apply：主线达标后 freeze，optimization 用 `git worktree add` 开 sidetrack，每轮真机不达标 → 整个 worktree 丢弃，主线零污染
 - ✅ **撤回决策按绝对值（PRD 是否满足）而非相对值（投入了多少）**：sunk cost ignore。Why：已投入 3 轮 ≠ 应该投第 4 轮；当前 baseline 满足目标 + 优化达不到 = 撤回，与已投入工时无关。How to apply：每轮优化结束 review 时强制问"当前主线是否已满足 PRD？若是，本轮优化是否达到新承诺指标？"，两个 yes 才合并；否则丢弃
+
+---
+
+## 2026-05-12 — T1 jwc schedule 衍生命令（today/week/next + --grid）
+
+**触发情境**：plan 14 task 全 green（11 task 子代理实装 + cargo test 128/128 + clippy 零 warning），但 T12 真机第一次跑 `sjtu jwc today` 立刻报 `N2154 周课表 JSON 解析失败: null`。挖出 4 个 plan/spec 没覆盖的真实约束 + 1 个老 bug。
+
+**错误模式**：
+1. **plan 草稿声明的字段类型与真机 JSON 不符**：plan 写 `oldzc / oldjc: number` + `xqj: string`，T0 fixture 抓出来 `oldzc/oldjc` 是 string ("65535")、`rqazcList[*].xqj` 是 number。但 plan T6/T9 代码块没回头改，stale 类型在 review 期被人眼漏掉
+2. **plan / spec 声明"xnm/xqm 留空 = 当前学期"是过时假设**：ZF 老版本接受空值并 server-side fill，9 版本不再 fill，直接返 JSON `null`，无 redirect，无 status code，纯 application-level 失败。T0 fixture 抓的时候我手动给了 xnm=2025 xqm=12，所以 fixture 看不出这个约束
+3. **`sjtu logout` 只清主 session，不清 sub_sessions/<name>.json**：cas_login 第一步是 `load_sub_session("jwc")` + `if !is_expired() → return cached`。Apr 26 旧 jwc.json `soft_expires_at` 30 天后（May 26），logout 后 login 调 jwc 命令时直接命中 stale 缓存，返 ZF 不认的旧 cookie → 所有 SP redirect 到 `/xtgl/login_slogin.html`
+4. **subagent-driven plan 跨 task 类型漂移漏检**：plan T_N 改了类型定义（T3 把 xqj `Option<String>` → `Option<u8>`），但 T_M (M>N) 代码块还引用旧类型（T6/T9 plan stale `r.xqj.as_deref()`）。subagent 跑 T_M 时按 plan 直接抄会编译失败，靠主对话 controller 在 dispatch prompt 里挖坑前明确告知 corrections
+
+**正确做法**（已落实）：
+1. **N2154 / N2151 内部 fallback 推默认 xnm/xqm**：拆 `src/apps/jwc/api/term.rs` `default_xnm_xqm_by_date(today)` 按今天日历月推（2-7 春/8 夏/9-12 秋/1 秋-上学年）。4 个 unit test 覆盖春/秋/夏/边界月
+2. **T0 fixture 抓时同时记录 form payload 字段值**：不仅抓 response JSON，还要抓 `cxXsKb.html` 的 POST request payload 看 xnm/xqm/zs 真实值
+3. **plan 类型校正必须 propagate 到所有 task**：plan controller 在 T_N 改类型后必须 grep 后续 task 代码块的所有 `.as_deref()` / `parse::<>` / 字段访问，inline 修正
+4. **subagent controller 在 dispatch prompt 里显式标注 plan stale 处**：T6/T9 dispatch 我手动加了 "⚠️ plan 第 X 行 r.xqj.as_deref() 是 stale，改成 r.xqj == Some(1)"，subagent 才能避免照抄
+
+**真机验证**（T12 final，2026-05-12 17:30 SJTU 校园网）：
+- `jwc today --yaml`：current_week=11 / today_iso=2026-05-12 / today_weekday=2 / items 显日语口译（1）周二 9-10 节 16:00-17:40 ✓
+- `jwc week --yaml`：rqazc_list 完整 5/11-5/17 / items 含日语精读周一 3-4 节等 ✓
+- `jwc week --zs 1 --yaml`：rqazc_list 显学期第 1 周 2026-03-02 ~ 03-08 ✓
+- `jwc next --within 7 --limit 10 --yaml`：fetched_weeks=[11,12] / 10 条按 datetime_start 升序 ✓
+- `jwc next --within 31 --limit 30 --yaml`：12.4s（plan 估 ≤5s 偏乐观，5 周 × ~2s ZF RTT+throttle 真实成本）
+- cache `~/AppData/Local/sjtu/sjtu-cli/cache/jwc_week_cache.json`：`{"entries":{"__current__":{"week":11,"fetched_at":"...Z"}}}` ✓
+- cached run 7.4s（first 12s，节省 4.6s ≫ 500ms 目标）✓
+- `jwc today --grid` / `jwc week --grid`：comfy-table 7 列 × 8 节渲染，课程\n教室\n教师 三行 cell
+
+**规则**：
+- ✅ **真机 fixture 抓取时同步记录 form payload 真实字段值**：不止 response。Why：response 看不出 server-side 对空字段的容忍度（空也可能 server fill default），只有 request payload 真实值能反推 client 必须传什么。How to apply：chrome-devtools `list_network_requests` 之后 `get_network_request <id>` 看 request body 完整 form-urlencoded，写进 fixture 旁边 `*.request.txt` 一并提交
+- ✅ **plan 类型修订必须 grep 整个 plan 文档校正下游 task**：T_N 改类型 → 立刻 grep `as_deref|parse::|\.x[a-z]+` 在 T_{N+1..end} 范围内出现的所有用法，inline 修正。Why：subagent 抄 plan 代码块时不查阅之前 task 的类型定义。How to apply：plan 修订时跑一遍 `grep -n` confirm 没有 stale type ref 再提交 plan diff
+- ✅ **CLI logout 必须同时清主 session + 所有 sub_session**：单 `clear_session()` 不够，CAS 子链缓存会让下次 login 后立刻命中过期不严的旧 cookie。Why：`sub_session.soft_expires_at` 是 30 天保守值，但实际 SP session 30 min idle timeout；logout 表达的是"用户想清干净重来"，不只是清主认证。How to apply：`cmd_logout` 调 `clear_session() + glob clear_sub_session_dir()`（已记 todo.md follow-up）
+- ✅ **ZF / 老 SP 系统不要假设"空值 = 默认"**：每个查询 endpoint 显式给 xnm/xqm/page/pageSize 等全部字段，不依赖 server-side fill。Why：ZF 各版本对空值容忍度不同，9 SP 收紧后空值直接返 JSON null 无 status code 区分。How to apply：endpoint 默认值放在 client-side 推断（chrono::Local::now() 按月份推），不依赖 server

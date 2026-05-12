@@ -252,6 +252,13 @@
 - [ ] N2151 课表 / N309131 GPA / N358105 考试 各 SP 实装 + CP-J2..CP-J4
 - [ ] CP-J5..CP-Jn 按 §2.5..§2.9 5 个 phase-2 SP 逐个 checkpoint
 - [ ] `tests/jwc_*.rs` mockito 端单测（不打真服务器）
+- [x] **T1 jwc 课表衍生命令 today / week / next + --grid** ✅ 2026-05-12（14 task plan + 9 commit）：N2154 周次端点 + oldzc/oldjc bitmask 过滤 + period_clock 1-13 节时刻 join + 反推当前周 + 24h cache + comfy-table grid 渲染（day + week）
+  - **新模块**：`src/apps/jwc/api/{schedule.rs::schedule_by_week+infer_current_week, week_cache.rs, term.rs}` / `src/apps/jwc/period_clock.rs`（DEFAULT_TABLE + jc_positions + is_in_week）/ `src/commands/jwc/{schedule_handlers.rs, schedule_helpers.rs, schedule_next.rs}` / `src/cli/jwc/{mod.rs+schedule_cli.rs}` / `src/output_grid.rs`（comfy-table day + week 渲染）
+  - **改 envelope**：`KbItem` 加 `Option<oldzc/oldjc>` + `Schedule` 加 `rqazc_list: Vec<RqAzc>` + 新 `TodayData/WeekData/NextData/TodayItem/NextItem`（全 additive）
+  - **新依赖**：`comfy-table = "~7.1"`（锁 7.1.x MSRV 1.64，避 7.2 MSRV 1.85 超 rust-version 1.75）
+  - **真机 8 步全过**（T12 SJTU 校园网 2026-05-12）：today 显当周二剩余课 ✓ / week 显 5/11-5/17 7 列 / week --zs 1 显 03-02..03-08 / next --within 7 跨周排序 / next --within 31 12.4s / cache __current__:11 ✓ / cached 7.4s（first 12s 节省 4.6s）/ --grid comfy-table 7×8 行肉眼可读
+  - **T12 暴露 + 已修**：ZF 9 SP 不再接受空 xnm/xqm（`default_xnm_xqm_by_date` 按月推 fallback）；plan stale 类型（oldzc/oldjc string / rqazc.xqj number）已在 dispatch prompt 校正；详见 `tasks/lessons.md` 2026-05-12 第二段
+  - **follow-up bug**（独立 task）：`sjtu logout` 只清主 session 不清 sub_sessions/<name>.json，cas_login 命中 stale cache → 修 `cmd_logout` 清整个 sub_sessions/ 目录
 
 ### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
 

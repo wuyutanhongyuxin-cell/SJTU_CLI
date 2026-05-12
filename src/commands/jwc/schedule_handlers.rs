@@ -10,13 +10,15 @@ use crate::apps::jwc::Client;
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{TodayData, TodayItem, WeekData};
-use super::schedule_helpers::{expand_jc, filter_kb_in_week, iso_weekday, parse_xqj};
+use super::schedule_helpers::{
+    expand_jc, filter_kb_in_week, iso_weekday, parse_xqj, render_day_grid, render_week_grid,
+};
 
 /// `sjtu jwc today`：今日剩余的课。
 pub async fn cmd_today(
     xnm: Option<String>,
     xqm: Option<String>,
-    _grid: bool,
+    grid: bool,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
     let client = Client::connect().await?;
@@ -87,6 +89,11 @@ pub async fn cmd_today(
         .collect();
     items.sort_by_key(|i| i.jc_list.first().copied().unwrap_or(99));
 
+    if grid {
+        print!("{}", render_day_grid(&items));
+        return Ok(());
+    }
+
     render(
         Envelope::ok(TodayData {
             xnm,
@@ -106,7 +113,7 @@ pub async fn cmd_week(
     xnm: Option<String>,
     xqm: Option<String>,
     zs: Option<u8>,
-    _grid: bool,
+    grid: bool,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
     let client = Client::connect().await?;
@@ -149,6 +156,11 @@ pub async fn cmd_week(
     } else {
         None
     };
+
+    if grid {
+        print!("{}", render_week_grid(&sched.rqazc_list, &items));
+        return Ok(());
+    }
 
     render(
         Envelope::ok(WeekData {

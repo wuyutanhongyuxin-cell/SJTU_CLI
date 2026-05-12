@@ -24,7 +24,7 @@
 | `sjtu canvas-video list\|download\|clear-cache` | Canvas 课堂视频（v.sjtu.edu.cn）LTI 1.3 鉴权 + 单讲 / 批量 mp4 / `--audio-only` 抽 m4a |
 | `sjtu services pending` | 办事大厅（my.sjtu.edu.cn）待办 / 已办 / 抄送 |
 | `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
-| `sjtu jwc grades` | 教务（i.sjtu.edu.cn）成绩查询（MVP，N305005 入口）|
+| `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天）；`--grid` comfy-table 表格输出 |
 
 路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 
@@ -62,6 +62,17 @@ sjtu canvas-video download <COURSE_ID> --tool-id <TOOL_ID> --lectures 1-9 --audi
 ```
 
 `--audio-only` 模式临时下整个 mp4 (~916 MB/讲) → ffmpeg 抽 m4a (~22 MB) → 删 mp4，需本机预装 ffmpeg。实测：单讲 ≤ 2.5 min / 9 讲 batch ≤ 16 min（V5.F 真机 baseline）。性能优化复盘见 `docs/superpowers/research/2026-05-12-v5-series-retrospective.md`。
+
+教务课表（衍生命令基于 N2154 周次端点 + oldzc bitmask 过滤 + period_clock 时刻 join）：
+
+```bash
+sjtu jwc today --grid                       # 今日剩余的课（comfy-table）
+sjtu jwc week --zs 14 --grid                # 第 14 周整周课表
+sjtu jwc next --within 7 --limit 10 --yaml  # 未来 7 天前 10 节课
+sjtu jwc schedule --yaml                    # 整学期课表 (N2151)
+```
+
+> **真实约束**（T12 真机暴露）：ZF 9 SP 不再接受空 `xnm`/`xqm` —— CLI 按今天日期推默认（春/秋/夏），调用方可显式 `--xnm 2025 --xqm 12` 覆盖。
 
 ## 技术栈
 
