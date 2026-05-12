@@ -47,6 +47,10 @@ url = "2"
 # --- S3e 生活服务（电费）金额硬约束：禁 f64，所有金额 / 度数走 Decimal ---
 rust_decimal = { version = "1", features = ["serde"] }
 
+# --- T1 jwc 课表 grid 渲染 ---
+# 锁 7.1.x：7.2 MSRV 1.85 超项目 rust-version 1.75
+comfy-table = "~7.1"
+
 [dev-dependencies]
 mockito = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "fs", "io-util"] }
