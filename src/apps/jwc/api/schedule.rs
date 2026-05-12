@@ -43,13 +43,29 @@ impl Client {
     /// §2.7 N2154 周次课表查询。返回的 envelope 含 `rqazcList`（每天 ISO 日期）+
     /// `kbList[*].oldzc/oldjc` 周次/节次 bitmask。
     ///
-    /// `zs` 必填（1..=18 教学周）；`xnm`/`xqm` 留空 = 当前学年/学期。
+    /// `zs` 必填（1..=18 教学周）。
+    ///
+    /// **真实约束**（T12 真机暴露，2026-05-12）：N2154 mobile 路径与 N2151 PC 路径都
+    /// **不接受空 xnm/xqm**（返 JSON `null`，无 redirect）。调用方传 `None` 时本函数
+    /// 用 `default_xnm_xqm_by_date(今天)` 推默认（春 xqm=12 / 秋 xqm=3 / 夏 xqm=16）。
     pub async fn schedule_by_week(
         &self,
         xnm: Option<&str>,
         xqm: Option<&str>,
         zs: u8,
     ) -> Result<Schedule> {
+        let (xnm_owned, xqm_owned);
+        let (xnm_eff, xqm_eff) = match (xnm, xqm) {
+            (Some(n), Some(q)) if !n.is_empty() && !q.is_empty() => (n, q),
+            _ => {
+                let (n, q) =
+                    super::term::default_xnm_xqm_by_date(chrono::Local::now().date_naive());
+                xnm_owned = n;
+                xqm_owned = q;
+                (xnm_owned.as_str(), xqm_owned.as_str())
+            }
+        };
+
         self.ensure_sp_bound(
             "/kbcx/xskbcxMobile_cxXskbcxMobileIndex.html",
             "N2154",
@@ -57,7 +73,7 @@ impl Client {
         )
         .await?;
 
-        let form = build_n2154_form(xnm, xqm, zs);
+        let form = build_n2154_form(Some(xnm_eff), Some(xqm_eff), zs);
         post_form_json(
             &self.http,
             &self.throttle,

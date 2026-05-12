@@ -14,6 +14,7 @@ mod exams;
 mod gpa;
 mod grades;
 mod schedule;
+mod term;
 pub(crate) mod week_cache;
 
 pub use gpa::{GpaRank, GpaScope};
