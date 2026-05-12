@@ -1,0 +1,22 @@
+{
+  "currentPage": 1,
+  "pageSize": 50,
+  "totalResult": "1",
+  "totalPage": 1,
+  "items": [
+    {
+      "gpa": "3.85",
+      "gpapm": "3/120",
+      "xjf": "88.5",
+      "xjfpm": "5/120",
+      "zf": "1234",
+      "ms": "14",
+      "zxf": "40.0",
+      "hdxf": "40.0",
+      "bjgxf": "0",
+      "tgl": "100%",
+      "kcfw": "核心课程",
+      "czsj": "2026-04-30 12:34:56"
+    }
+  ]
+}

@@ -49,9 +49,10 @@ Expected: 任意非空成绩列表（验证 jwc CAS 通）；如失败先 `sjtu 
 
 Run:
 ```powershell
-target\release\sjtu.exe jwc gpa --scope hxkc --rank njzy -o json
+target\release\sjtu.exe --json jwc gpa --scope hxkc --rank njzy
 ```
 Expected: stdout 是 JSON Envelope，data.items[0] 含 gpa/gpapm/xjf/xjfpm/czsj 等字段；data.returned >= 1。
+（注：`--json` / `--yaml` 是全局 flag，必须置于子命令 `jwc` 之前，clap 不接受 `-o`。）
 
 - [ ] **Step 3: 抓取 step1 与 step2 的原始响应**
 
@@ -59,7 +60,7 @@ Expected: stdout 是 JSON Envelope，data.items[0] 含 gpa/gpapm/xjf/xjfpm/czsj 
 
 Run:
 ```powershell
-$env:RUST_LOG="debug"; target\release\sjtu.exe jwc gpa --scope hxkc --rank njzy -o json 2>&1 | Select-String -Pattern "N309131 gpa step"
+$env:RUST_LOG="debug"; target\release\sjtu.exe --json jwc gpa --scope hxkc --rank njzy 2>&1 | Select-String -Pattern "N309131 gpa step"
 ```
 
 Expected: 看到 `N309131 gpa step1` 与 `step2` 两个 debug 行。
@@ -127,7 +128,7 @@ Expected: PASS（已有的 inline 测试通；fixture 文件不影响此 case，
 
 Run:
 ```powershell
-target\release\sjtu.exe jwc gpa --scope hxkc --rank njzy --from 203003 --to 203003 -o json
+target\release\sjtu.exe --json jwc gpa --scope hxkc --rank njzy --from 203003 --to 203003
 ```
 Expected: 观察 step1 返什么。三种可能：
 1. `"统计成功！"` 但 step2 items 空（最常见）
@@ -136,7 +137,7 @@ Expected: 观察 step1 返什么。三种可能：
 
 把实际行为记到本步骤下方（如果与默认假设一致，写"已确认 case 1"）：
 
-> **实地观察记录**：[填写]
+> **实地观察记录**（2026-05-12）：已确认 case 1 — step1 成功（envelope ok=true）但 step2 items 空（total_result=0, returned=0, exit code 0）。server 未给"未到统计时间"独立报错，client 通过 `items.is_empty()` fail-soft 识别（已落到 Task 5 cmd_gpa_by_semester 的 `Ok(env) if env.items.is_empty()` 分支）。
 
 - [ ] **Step 8: Commit fixture**
 
@@ -927,7 +928,7 @@ fn fixture_step2_parses_envelope_with_required_fields() {
     let g = &p.items[0];
     assert!(g.gpa.is_some(), "gpa 字段必须保留");
     assert!(g.gpapm.is_some(), "gpapm 字段必须保留");
-    assert!(g.kcfw.as_deref() == Some("hxkc"), "fixture 应该是 hxkc 组合");
+    assert!(g.kcfw.is_some(), "kcfw 字段必须保留（server 返中文 '核心课程' 而非 hxkc）");
 }
 
 #[test]
@@ -997,12 +998,12 @@ Expected: 零 error。
 逐条跑：
 
 ```powershell
-target\release\sjtu.exe jwc gpa --scope hxkc --rank njzy -o yaml
-target\release\sjtu.exe jwc gpa --scope hxkc --rank nj   -o yaml
-target\release\sjtu.exe jwc gpa --scope hxkc --rank bj   -o yaml
-target\release\sjtu.exe jwc gpa --scope qbkc --rank njzy -o yaml
-target\release\sjtu.exe jwc gpa --scope qbkc --rank nj   -o yaml
-target\release\sjtu.exe jwc gpa --scope qbkc --rank bj   -o yaml
+target\release\sjtu.exe --yaml jwc gpa --scope hxkc --rank njzy
+target\release\sjtu.exe --yaml jwc gpa --scope hxkc --rank nj
+target\release\sjtu.exe --yaml jwc gpa --scope hxkc --rank bj
+target\release\sjtu.exe --yaml jwc gpa --scope qbkc --rank njzy
+target\release\sjtu.exe --yaml jwc gpa --scope qbkc --rank nj
+target\release\sjtu.exe --yaml jwc gpa --scope qbkc --rank bj
 ```
 
 每跑一条断言：
@@ -1017,7 +1018,7 @@ target\release\sjtu.exe jwc gpa --scope qbkc --rank bj   -o yaml
 
 Run:
 ```powershell
-target\release\sjtu.exe jwc gpa-by-semester -o yaml
+target\release\sjtu.exe --yaml jwc gpa-by-semester
 ```
 
 Expected:
@@ -1030,7 +1031,7 @@ Expected:
 
 Run:
 ```powershell
-target\release\sjtu.exe jwc gpa-by-semester --xnm-from 2030 --xnm-to 2030 -o yaml
+target\release\sjtu.exe --yaml jwc gpa-by-semester --xnm-from 2030 --xnm-to 2030
 ```
 
 Expected:
