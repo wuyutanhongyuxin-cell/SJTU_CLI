@@ -1,13 +1,23 @@
 //! §2.2 N2151 个人课表查询响应实体（专属 envelope，不复用 `JwcPage`）。
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
-/// §2.2 N2151 课表 envelope。
-///
-/// **不暴露的字段**（默认抹掉）：
-/// - `xsxx` —— 学生身份信息（XH/XM/YWXM/NJDM_ID/ZYMC/BJMC 全身份）
-/// - `qsxqj` / `sjkList` / `sjfwkg` / `rqazcList` / `xskbsfxstkzt` —— ZF 显示侧噪音
-///   （`rqazcList` 在 N2154 周课表里有用，但 N2151 此处永远空）
+/// 反序列化 string ("65535") → Option<u32>。
+/// 兼容 N2154 真机返回（`oldzc` / `oldjc` 是 string，不是 number）。
+fn deserialize_opt_u32_from_str<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    match opt {
+        None => Ok(None),
+        Some(s) if s.is_empty() => Ok(None),
+        Some(s) => s.parse::<u32>().map(Some).map_err(serde::de::Error::custom),
+    }
+}
+
+/// §2.2 N2151 课表 envelope（N2154 周课表复用）。
+/// 隐藏字段：`xsxx`（学生身份）/ `qsxqj` / `sjkList` / `sjfwkg` / `xskbsfxstkzt`（ZF 噪音）。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Schedule {
@@ -17,6 +27,23 @@ pub struct Schedule {
     /// 课表条目（已按周几+节次铺平）。
     #[serde(default)]
     pub kb_list: Vec<KbItem>,
+    /// §2.7 N2154 周课表的"周次→日期"映射；N2151 路径永远空 Vec。
+    #[serde(default, rename = "rqazcList")]
+    pub rqazc_list: Vec<RqAzc>,
+}
+
+/// §2.7 N2154 `rqazcList[*]` 单条：周次对应的日期 + 周几。
+///
+/// N2151 路径下永远空（`serde(default)` 兼容）。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RqAzc {
+    /// 日期 ISO 字符串（"2025-09-08"）。
+    #[serde(default)]
+    pub rq: Option<String>,
+    /// 周几（真机是 number 1..7，非 string）。
+    #[serde(default)]
+    pub xqj: Option<u8>,
 }
 
 /// §2.2 N2151 `kbList[*]` 单条课程。
@@ -103,4 +130,68 @@ pub struct KbItem {
     /// 授课语言（"中文" / "英文"）。
     #[serde(default)]
     pub skfsmc: Option<String>,
+    /// §2.7 N2154 周次 bitmask（真机 string "65535"，parse→u32；N2151 永远 None）。
+    #[serde(
+        default,
+        rename = "oldzc",
+        deserialize_with = "deserialize_opt_u32_from_str"
+    )]
+    pub old_zc: Option<u32>,
+    /// §2.7 N2154 节次 bitmask（真机 string "12"，parse→u32；N2151 永远 None）。
+    #[serde(
+        default,
+        rename = "oldjc",
+        deserialize_with = "deserialize_opt_u32_from_str"
+    )]
+    pub old_jc: Option<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schedule_deserializes_n2154_rqazc_list() {
+        // 真机 N2154：xqj 是 number (1..7)，rq 是 ISO 字符串
+        let json = r#"{
+            "xqjmcMap": {"1":"星期一","2":"星期二"},
+            "kbList": [],
+            "rqazcList": [
+                {"rq": "2025-09-08", "xqj": 1},
+                {"rq": "2025-09-09", "xqj": 2}
+            ]
+        }"#;
+        let s: Schedule = serde_json::from_str(json).expect("Schedule 解析失败");
+        assert_eq!(s.rqazc_list.len(), 2);
+        assert_eq!(s.rqazc_list[0].rq.as_deref(), Some("2025-09-08"));
+        assert_eq!(s.rqazc_list[0].xqj, Some(1));
+    }
+
+    #[test]
+    fn kb_item_deserializes_old_zc_old_jc_from_string() {
+        // 真机 N2154：oldzc / oldjc 是 string，需 parse 成 u32
+        let json = r#"{"kcmc":"高数","oldzc":"524286","oldjc":"12"}"#;
+        let k: KbItem = serde_json::from_str(json).expect("KbItem 解析失败");
+        assert_eq!(k.old_zc, Some(524286));
+        assert_eq!(k.old_jc, Some(12));
+    }
+
+    #[test]
+    fn kb_item_old_zc_absent_defaults_to_none() {
+        // N2151 路径无 oldzc / oldjc
+        let json = r#"{"kcmc":"高数"}"#;
+        let k: KbItem = serde_json::from_str(json).expect("KbItem 解析失败");
+        assert!(k.old_zc.is_none());
+        assert!(k.old_jc.is_none());
+    }
+
+    #[test]
+    fn n2151_response_without_rqazc_list_defaults_to_empty_vec() {
+        let json = r#"{"xqjmcMap":{},"kbList":[]}"#;
+        let s: Schedule = serde_json::from_str(json).expect("Schedule 解析失败");
+        assert!(
+            s.rqazc_list.is_empty(),
+            "N2151 路径 rqazc_list 必须为空 Vec"
+        );
+    }
 }
