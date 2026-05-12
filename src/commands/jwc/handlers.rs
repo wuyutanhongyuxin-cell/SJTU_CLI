@@ -67,9 +67,13 @@ pub async fn cmd_gpa(
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
     let client = Client::connect().await?;
-    let env_resp = client
+    let mut env_resp = client
         .gpa(scope, rank, qs_xnxq.as_deref(), zz_xnxq.as_deref())
         .await?;
+    // 双轨：保留 server 给的 gpapm/xjfpm 字符串，client 端 fill_parsed 填 RankPair。
+    for g in &mut env_resp.items {
+        g.fill_parsed();
+    }
     let returned = env_resp.items.len();
     let data = GpaData {
         scope: scope_str(scope),

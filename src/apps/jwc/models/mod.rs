@@ -20,7 +20,6 @@ mod grade;
 mod schedule;
 
 pub use exam::Exam;
-#[allow(unused_imports)]
 pub use gpa::{parse_rank, Gpa, RankPair};
 pub use grade::Grade;
 pub use schedule::{KbItem, RqAzc, Schedule};

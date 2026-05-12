@@ -57,6 +57,21 @@ pub struct Gpa {
     /// 统计计算时间 `"YYYY-MM-DD HH:MM:SS"`。
     #[serde(default)]
     pub czsj: Option<String>,
+    /// 客户端从 `gpapm` 解析的结构化排名（server 不返回，cmd 层 fill_parsed 填）。
+    #[serde(default, skip_deserializing)]
+    pub gpapm_parsed: Option<RankPair>,
+    /// 客户端从 `xjfpm` 解析的结构化排名（server 不返回，cmd 层 fill_parsed 填）。
+    #[serde(default, skip_deserializing)]
+    pub xjfpm_parsed: Option<RankPair>,
+}
+
+impl Gpa {
+    /// 从原始 `gpapm` / `xjfpm` 字符串字段解析填充 `*_parsed`。
+    /// fail-soft：解析失败的字段保持 `None`，不抛错。
+    pub fn fill_parsed(&mut self) {
+        self.gpapm_parsed = self.gpapm.as_deref().and_then(parse_rank);
+        self.xjfpm_parsed = self.xjfpm.as_deref().and_then(parse_rank);
+    }
 }
 
 /// 排名字符串 `"X/Y"` 的结构化表达。仅 client 端使用（server 不返回）。
@@ -66,8 +81,6 @@ pub struct Gpa {
 /// - `percentile` = rank / total × 100。fail-soft 边界：
 ///   - `total == 0` → `None`（除零）
 ///   - `rank > total` → `None`（数据异常，但保留 rank/total 供审计）
-// Task 3 会在 Gpa::fill_parsed 中使用本 struct 和 parse_rank，暂时 allow dead_code。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RankPair {
@@ -82,7 +95,6 @@ pub struct RankPair {
 /// - 空字符串 / 全空白 → `None`
 /// - 无斜杠 / 两侧不是 u32 → `None`
 /// - `total == 0` 或 `rank > total` → `Some(RankPair { rank, total, percentile: None })`
-#[allow(dead_code)]
 pub fn parse_rank(s: &str) -> Option<RankPair> {
     let trimmed = s.trim();
     if trimmed.is_empty() {

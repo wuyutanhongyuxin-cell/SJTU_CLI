@@ -6,7 +6,7 @@
 //! - §2.3 N309131：step1 裸 JSON 字符串 / step2 envelope 含 gpa / gpapm 字段
 //! - §2.4 N358105：标准分页 + kssj 复合时间字符串保留原样
 
-use super::models::{parse_rank, Exam, Gpa, Grade, JwcPage, KbItem, Schedule};
+use super::models::{parse_rank, Exam, Gpa, Grade, JwcPage, KbItem, RankPair, Schedule};
 
 #[test]
 fn parse_grade_envelope_string_total_result() {
@@ -200,4 +200,30 @@ fn parse_rank_tolerates_whitespace() {
     assert_eq!(r.rank, 3);
     assert_eq!(r.total, 120);
     assert_eq!(r.percentile, Some(2.5));
+}
+
+#[test]
+fn gpa_fill_parsed_populates_both_from_strings() {
+    let mut g = Gpa {
+        gpapm: Some("3/120".into()),
+        xjfpm: Some("5/120".into()),
+        ..Default::default()
+    };
+    g.fill_parsed();
+    let gpa_pair: &RankPair = g.gpapm_parsed.as_ref().unwrap();
+    let xjf_pair: &RankPair = g.xjfpm_parsed.as_ref().unwrap();
+    assert_eq!(gpa_pair.rank, 3);
+    assert_eq!(xjf_pair.rank, 5);
+}
+
+#[test]
+fn gpa_fill_parsed_keeps_none_when_strings_invalid() {
+    let mut g = Gpa {
+        gpapm: Some("".into()),
+        xjfpm: None,
+        ..Default::default()
+    };
+    g.fill_parsed();
+    assert!(g.gpapm_parsed.is_none());
+    assert!(g.xjfpm_parsed.is_none());
 }
