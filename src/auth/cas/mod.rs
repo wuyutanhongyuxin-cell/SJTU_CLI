@@ -44,22 +44,23 @@ pub struct CasResult {
 pub async fn cas_login(name: &str, target_url: &str) -> Result<CasResult> {
     let start = Instant::now();
 
-    // 1) 缓存命中且未过期 → 直接返回。
-    if let Ok(sess) = load_sub_session(name) {
-        if !sess.is_expired() {
+    // 主 session 必须存在（cache hit 也要拿来比 captured_at staleness）。
+    let main = load_session().context("主 session 不存在或损坏，请先 `sjtu login`")?;
+
+    // cache 命中且 fresh → 直接返回；否则视为 stale 重做 CAS。
+    if let Ok(sub) = load_sub_session(name) {
+        if cache_is_fresh(&sub, &main) {
             info!(name, "命中 sub_session 缓存");
             return Ok(CasResult {
-                session: sess,
+                session: sub,
                 from_cache: true,
                 elapsed_ms: start.elapsed().as_millis(),
                 final_url: target_url.to_string(),
             });
         }
-        debug!(name, "sub_session 已过期，重做 CAS");
+        debug!(name, "sub_session cache 失效（过期 or stale），重做 CAS");
     }
 
-    // 2) 主 session 必须存在，且含 JAAuthCookie。
-    let main = load_session().context("主 session 不存在或损坏，请先 `sjtu login`")?;
     let jaauth = main
         .get("JAAuthCookie")
         .ok_or(SjtuCliError::SessionExpired)?
@@ -188,6 +189,14 @@ fn is_redirect(s: StatusCode) -> bool {
             | StatusCode::TEMPORARY_REDIRECT
             | StatusCode::PERMANENT_REDIRECT
     )
+}
+
+/// sub_session 缓存是否仍 fresh。需同时满足：未到 sub soft TTL，且
+/// `captured_at` 不早于主 session。后者修 T12 真机 bug——主重 login 后
+/// 旧 sub 文件 soft_expires_at=30d 未到、被 `cas_login` 错误复用失效 cookie。
+/// 设计对齐 OAuth/JWT 的 `iat < last_invalidation_at` staleness 模式。
+pub(crate) fn cache_is_fresh(sub: &Session, main: &Session) -> bool {
+    !sub.is_expired() && sub.captured_at >= main.captured_at
 }
 
 fn is_jaccount_host(url: &str) -> bool {

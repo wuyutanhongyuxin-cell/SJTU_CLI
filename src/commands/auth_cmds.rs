@@ -55,6 +55,10 @@ pub fn cmd_login(backend: Backend, fmt: Option<OutputFormat>) -> Result<()> {
 }
 
 /// `sjtu logout`：幂等。
+///
+/// 故意只清主 session，不动 `sub_sessions/*` —— 那里有用户手粘的 Canvas PAT、
+/// Discourse `_t` 等独立凭据。staleness 由 `cas_login` 入口的 `captured_at` 判定接管，
+/// 主 session 一变下次调用自然失效（业界对齐 `aws sso logout`）。
 pub fn cmd_logout(fmt: Option<OutputFormat>) -> Result<()> {
     use crate::config::session_path;
     let existed = session_path().map(|p| p.exists()).unwrap_or(false);

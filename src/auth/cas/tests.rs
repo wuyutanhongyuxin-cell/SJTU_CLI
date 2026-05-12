@@ -10,6 +10,55 @@ use reqwest::{Client, StatusCode};
 
 use super::*;
 
+use crate::cookies::{Cookie, Session};
+use chrono::{Duration, Utc};
+
+fn fresh_session_at_offset_secs(offset_secs: i64) -> Session {
+    // 用 Session::new 拿到默认 30d soft TTL，再手动覆盖 captured_at 测 staleness。
+    let mut s = Session::new(vec![Cookie {
+        name: "JAAuthCookie".into(),
+        value: "0123456789abcdef".into(),
+        domain: Some("jaccount.sjtu.edu.cn".into()),
+        path: Some("/".into()),
+        expires: None,
+    }]);
+    s.captured_at = Utc::now() + Duration::seconds(offset_secs);
+    s
+}
+
+#[test]
+fn cache_is_fresh_returns_true_when_sub_same_age_as_main() {
+    let main = fresh_session_at_offset_secs(0);
+    let sub = fresh_session_at_offset_secs(0);
+    assert!(cache_is_fresh(&sub, &main));
+}
+
+#[test]
+fn cache_is_fresh_returns_true_when_sub_newer_than_main() {
+    let main = fresh_session_at_offset_secs(-60);
+    let sub = fresh_session_at_offset_secs(0);
+    assert!(cache_is_fresh(&sub, &main));
+}
+
+/// 关键 case：T12 真机 bug。主重新 login（captured_at 更新），
+/// 但旧 sub 文件 soft_expires_at=30d 没到 → 旧代码错误命中，新代码必须 stale。
+#[test]
+fn cache_is_fresh_returns_false_when_sub_older_than_main() {
+    let main = fresh_session_at_offset_secs(0);
+    let sub = fresh_session_at_offset_secs(-3600); // sub 1h 前抓的
+    assert!(!sub.is_expired(), "soft TTL 还在");
+    assert!(!cache_is_fresh(&sub, &main), "主比 sub 新 → 必须视为 stale");
+}
+
+#[test]
+fn cache_is_fresh_returns_false_when_sub_soft_expired() {
+    let main = fresh_session_at_offset_secs(0);
+    let mut sub = fresh_session_at_offset_secs(0);
+    sub.soft_expires_at = Utc::now() - Duration::seconds(1);
+    assert!(sub.is_expired());
+    assert!(!cache_is_fresh(&sub, &main));
+}
+
 #[test]
 fn detect_jaccount_host() {
     assert!(is_jaccount_host(
