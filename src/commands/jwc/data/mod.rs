@@ -1,15 +1,20 @@
 //! `sjtu jwc <sub>` 命令暴露给 Envelope 的数据形状。
 //!
-//! 设计：每个 `cmd_*` 一个 Data struct；分页元信息（current_page / total_result 等）
-//! 放在顶层而非嵌进 `JwcPage`，方便 Agent 直接 grep。原始 ZF envelope 的
-//! `JwcPage<T>` 仅用于解析，items 取出来 flatten 进顶层。
+//! 拆分入口；GPA 相关 struct（GpaData / GpaBySemesterData / SemesterGpa / SemesterFailure /
+//! SemesterKey）见 `gpa.rs`。
 
 #![allow(dead_code)]
 
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::apps::jwc::{Exam, Gpa, Grade, KbItem, RqAzc};
+use crate::apps::jwc::{Exam, Grade, KbItem, RqAzc};
+
+mod gpa;
+#[allow(unused_imports)]
+pub(in crate::commands::jwc) use gpa::{
+    GpaBySemesterData, GpaData, SemesterFailure, SemesterGpa, SemesterKey,
+};
 
 /// `sjtu jwc grades` 的 data 形状。
 #[derive(Debug, Serialize)]
@@ -41,20 +46,6 @@ pub(super) struct ScheduleData {
     pub xqjmc_map: Value,
     /// 课表条目（已按周几+节次铺平，`zcd` 周次仍是字符串需 parser）。
     pub items: Vec<KbItem>,
-}
-
-/// `sjtu jwc gpa` 的 data 形状。`items[0]` 通常即当前学生。
-#[derive(Debug, Serialize)]
-pub(super) struct GpaData {
-    /// 查询入参回显。
-    pub scope: &'static str, // hxkc / qbkc
-    pub rank: &'static str, // njzy / nj / bj
-    pub qs_xnxq: Option<String>,
-    pub zz_xnxq: Option<String>,
-
-    pub total_result: Option<Value>,
-    pub returned: usize,
-    pub items: Vec<Gpa>,
 }
 
 /// `sjtu jwc exams` 的 data 形状。
