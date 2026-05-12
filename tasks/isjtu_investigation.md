@@ -477,6 +477,44 @@ CLI 实现：判断"该课是否在第 N 周上" → `(oldzc >> (N - 1)) & 1 == 
 - `kblx` 还可以是其他值（教师课表 / 班级课表），但学生 CLI 固定 `1`
 - `rqazcList` 长度固定 7（一周）；周末没课时仍返回该周日期
 
+**T0 (2026-05-12) 二次真机抓 — 类型补正 + 节次表**
+
+复抓 zs=1 / zs=14（fixture: `tests/fixtures/jwc/n2154_week_zs{1,14}.json`）发现 4-26 首抓时漏了的字段类型：
+
+| 字段位置 | 真机类型 | 备注 |
+|---|---|---|
+| `rqazcList[*].xqj` | **number** (1..7) | 非 string；Rust serde 用 `Option<u8>` |
+| `rqazcList[*].rq` | string ("2026-03-02") | ISO date |
+| `kbList[*].xqj` | string ("1".."7") | 同 N2151 路径 |
+| `kbList[*].oldzc` | **string** ("65535") | 非 number；Rust serde 反序列化时 parse |
+| `kbList[*].oldjc` | **string** ("12") | 同上 |
+
+⚠️ 上面 §2.7 旧描述 `oldzc = 65535`（数值）是 4-26 抓时 jq 自动把"65535"渲染成数字，**JSON 原始是 string**。Rust 实现必须支持 string → u32 解析（自定义 deserialize_with 或 String + impl From）。
+
+**节次时刻表（1-13 节）— ZF 字典调研失败 → SJTU 公开信源 fallback**
+
+T0 step 1 试了 6 个候选 ZF 字典端点（`zdmc=jc/jcsj/kssj/BZ_JC/skjc/jcmc`），全部返回 `{"list":[],"sfszdgr":"0"}`（无效字典名）。`/kbcx/xskbcxMobile_cxJcsj.html?gnmkdm=N2154` 返回 status 910 + `userModel.usable=false`（学生角色对该端点无权限）。
+
+最终走 fallback：SJTU 教务处公开《学生上课时间表》：
+
+| 节 | 起 | 止 | 节 | 起 | 止 |
+|---|---|---|---|---|---|
+| 1 | 08:00 | 08:45 | 8 | 14:55 | 15:40 |
+| 2 | 08:55 | 09:40 | 9 | 16:00 | 16:45 |
+| 3 | 10:00 | 10:45 | 10 | 16:55 | 17:40 |
+| 4 | 10:55 | 11:40 | 11 | 18:00 | 18:45 |
+| 5 | 12:00 | 12:45 | 12 | 18:55 | 19:40 |
+| 6 | 12:55 | 13:40 | 13 | 19:50 | 20:35* |
+| 7 | 14:00 | 14:45 | | | |
+
+\* 第 13 节官方信源只列"11-13 连上 18:00-20:20"，单节 19:50-20:35 是按 12 节后 10 分钟休息推算。
+
+**信源**：
+- [上海交通大学教务处《学生上课时间表》](https://jwc.sjtu.edu.cn/info/1041/1110.htm)
+- [上海交通大学设计学院《上课节次及时间对照表》](https://designschool.sjtu.edu.cn/cultivate/guide/5b1d6e7f194a1ee3d42cb2159297d668/detail/5f472a62b93c48b6b0e0d1c1)
+
+两信源 1-12 节完全一致 → 写入 `src/apps/jwc/period_clock.rs` 的 `DEFAULT_TABLE`。
+
 ---
 
 ### 2.8 N153521 — 培养计划课程查询 ✅ 2026-04-26 真机抓（含 N153540）
