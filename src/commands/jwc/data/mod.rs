@@ -11,7 +11,6 @@ use serde_json::Value;
 use crate::apps::jwc::{Exam, Grade, KbItem, RqAzc};
 
 mod gpa;
-#[allow(unused_imports)]
 pub(in crate::commands::jwc) use gpa::{
     GpaBySemesterData, GpaData, SemesterFailure, SemesterGpa, SemesterKey,
 };
