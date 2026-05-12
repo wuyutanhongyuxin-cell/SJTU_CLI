@@ -58,3 +58,47 @@ pub struct Gpa {
     #[serde(default)]
     pub czsj: Option<String>,
 }
+
+/// 排名字符串 `"X/Y"` 的结构化表达。仅 client 端使用（server 不返回）。
+///
+/// 设计点：
+/// - `rank` / `total` 保留原始整数（不做单位转换）。
+/// - `percentile` = rank / total × 100。fail-soft 边界：
+///   - `total == 0` → `None`（除零）
+///   - `rank > total` → `None`（数据异常，但保留 rank/total 供审计）
+// Task 3 会在 Gpa::fill_parsed 中使用本 struct 和 parse_rank，暂时 allow dead_code。
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RankPair {
+    pub rank: u32,
+    pub total: u32,
+    pub percentile: Option<f64>,
+}
+
+/// fail-soft 解析 ZF 排名字符串 `"X/Y"`。
+///
+/// 容错策略：
+/// - 空字符串 / 全空白 → `None`
+/// - 无斜杠 / 两侧不是 u32 → `None`
+/// - `total == 0` 或 `rank > total` → `Some(RankPair { rank, total, percentile: None })`
+#[allow(dead_code)]
+pub fn parse_rank(s: &str) -> Option<RankPair> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (l, r) = trimmed.split_once('/')?;
+    let rank: u32 = l.trim().parse().ok()?;
+    let total: u32 = r.trim().parse().ok()?;
+    let percentile = if total == 0 || rank > total {
+        None
+    } else {
+        Some((rank as f64 / total as f64) * 100.0)
+    };
+    Some(RankPair {
+        rank,
+        total,
+        percentile,
+    })
+}

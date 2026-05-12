@@ -6,7 +6,7 @@
 //! - §2.3 N309131：step1 裸 JSON 字符串 / step2 envelope 含 gpa / gpapm 字段
 //! - §2.4 N358105：标准分页 + kssj 复合时间字符串保留原样
 
-use super::models::{Exam, Gpa, Grade, JwcPage, KbItem, Schedule};
+use super::models::{parse_rank, Exam, Gpa, Grade, JwcPage, KbItem, Schedule};
 
 #[test]
 fn parse_grade_envelope_string_total_result() {
@@ -154,4 +154,50 @@ fn parse_exams_envelope_compound_kssj() {
     // 第二条字段稀疏也不 panic
     assert_eq!(p.items[1].kch.as_deref(), Some("MA101"));
     assert!(p.items[1].cdbh.is_none());
+}
+
+#[test]
+fn parse_rank_normal_3_over_120() {
+    let r = parse_rank("3/120").unwrap();
+    assert_eq!(r.rank, 3);
+    assert_eq!(r.total, 120);
+    let p = r.percentile.unwrap();
+    assert!((p - 2.5).abs() < 1e-6, "percentile={p}");
+}
+
+#[test]
+fn parse_rank_total_zero_keeps_pair_drops_percentile() {
+    let r = parse_rank("0/0").unwrap();
+    assert_eq!(r.rank, 0);
+    assert_eq!(r.total, 0);
+    assert!(r.percentile.is_none(), "total=0 时 percentile 必须 None");
+}
+
+#[test]
+fn parse_rank_empty_returns_none() {
+    assert!(parse_rank("").is_none());
+    assert!(parse_rank("   ").is_none());
+}
+
+#[test]
+fn parse_rank_no_slash_returns_none() {
+    assert!(parse_rank("3").is_none());
+    assert!(parse_rank("abc").is_none());
+    assert!(parse_rank("3-120").is_none());
+}
+
+#[test]
+fn parse_rank_rank_greater_than_total_drops_percentile() {
+    let r = parse_rank("200/120").unwrap();
+    assert_eq!(r.rank, 200);
+    assert_eq!(r.total, 120);
+    assert!(r.percentile.is_none(), "rank>total 时 percentile 必须 None");
+}
+
+#[test]
+fn parse_rank_tolerates_whitespace() {
+    let r = parse_rank("  3 / 120  ").unwrap();
+    assert_eq!(r.rank, 3);
+    assert_eq!(r.total, 120);
+    assert_eq!(r.percentile, Some(2.5));
 }
