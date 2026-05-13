@@ -572,3 +572,49 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 - ✅ **plan 类型修订必须 grep 整个 plan 文档校正下游 task**：T_N 改类型 → 立刻 grep `as_deref|parse::|\.x[a-z]+` 在 T_{N+1..end} 范围内出现的所有用法，inline 修正。Why：subagent 抄 plan 代码块时不查阅之前 task 的类型定义。How to apply：plan 修订时跑一遍 `grep -n` confirm 没有 stale type ref 再提交 plan diff
 - ✅ **CLI logout 必须同时清主 session + 所有 sub_session**：单 `clear_session()` 不够，CAS 子链缓存会让下次 login 后立刻命中过期不严的旧 cookie。Why：`sub_session.soft_expires_at` 是 30 天保守值，但实际 SP session 30 min idle timeout；logout 表达的是"用户想清干净重来"，不只是清主认证。How to apply：`cmd_logout` 调 `clear_session() + glob clear_sub_session_dir()`（已记 todo.md follow-up）
 - ✅ **ZF / 老 SP 系统不要假设"空值 = 默认"**：每个查询 endpoint 显式给 xnm/xqm/page/pageSize 等全部字段，不依赖 server-side fill。Why：ZF 各版本对空值容忍度不同，9 SP 收紧后空值直接返 JSON null 无 status code 区分。How to apply：endpoint 默认值放在 client-side 推断（chrono::Local::now() 按月份推），不依赖 server
+
+---
+
+## 2026-05-13 T2 jwc GPA + 排名双轨 + gpa-by-semester
+
+### N309131 两阶段 SP 客户端循环坑
+
+- **step1 必须先发**：跳过 step1 直接 step2 server 返空 items 而非报错，client 无法识别错误源
+- **step1 响应是裸 JSON 字符串**（`"统计成功！"`），不是对象 —— serde_json 反序列化时直接 `from_str::<String>`，**不能** `from_str::<Value>`（拿到的是 Value::String 还要再 `.as_str()`）
+- **真机 12 学期循环耗时 ~56s**（plan 估算 7-10s 严重偏低）—— N309131 step1 server-side 统计计算本身要 4-5s/次（不是网络 RTT），600ms client throttle 占比 ~10%；agent 调用前要提前告知用户预期等待时长
+- **fail-soft 三个 case**：网络挂 / step1 拒绝 / items 空 都装进 `failed` 数组，exit code 始终 0；真机实测大多落到 "items 空" 这个 case
+- **xnm-from 默认 "当年-3"**：4 年制本科覆盖率高；非 4 年学制（研究生/留学生）手给 `--xnm-from` 即可，client 不嗅探毕业信息表
+
+### `rank=nj` 在 SJTU 实例不一定支持
+
+- 真机实测：单学期 `--rank nj`（不带专业的纯年级排名）在 server 端返 ZF v5 HTML 错误页，`cmd_gpa` 报"上游响应解析失败"
+- 该用户专业方向只 16 人 = 班 = 专业方向，可能 server 视 nj 与 njzy/bj 重复而拒绝
+- **agent 建议**：默认用 `--rank njzy`（年级专业）；`bj` 也稳；`nj` 留作探索性参数
+- `cmd_gpa_by_semester` 内的 fail-soft 会兜住这种错（match Err → 装 `failed[]`），不会全局崩
+
+### 排名 server-side 给 "X/Y" 字符串 → 双轨 parsed
+
+- 不破坏现有 `gpapm`/`xjfpm` 原字段，**附加** `gpapm_parsed` / `xjfpm_parsed: Option<RankPair>`（JSON 输出 camelCase `gpapmParsed` / `xjfpmParsed`）
+- `RankPair.percentile` 在 `total=0` 或 `rank>total` 时为 `None`（fail-soft 而非 panic）
+- 用 `#[serde(default, skip_deserializing)]` 让 server 端漂移加字段时反序列化不破，client 端 `Gpa::fill_parsed()` 一次填到位
+- 真机：rank=15, total=16, percentile=93.75 形态在 6 单学期 + 多学期 succeeded 全部 ✓
+
+### N309131 `qs_xnxq` + `zz_xnxq` 同传时是"累计截至"语义
+
+- 真机实测：`qs_xnxq` = `zz_xnxq` = "202312" → server 返 "截至 2023-12 学期的累计 GPA"，不是"2023-12 这一学期独自的 GPA"
+- 例：2023/12 ms=7 gpa=3.637 → 2024/12 ms=14 gpa=3.637（7 门累加 7 门，GPA 几乎不变）
+- client 不做语义翻译，dumb forward；`SemesterGpa.gpa` 是该学期截止的累计值，agent 自己理解
+
+### sub_session client-fresh 但 server-dead 的盲点
+
+- 5878fba 的 `cache_is_fresh(sub, main)` 只检查 client 端 `captured_at >= main.captured_at` 且 `!sub.is_expired()`（soft TTL 30d）
+- **盲点**：ZF SP 自己的 server-side session TTL（实测 7+ 小时后失效），client 端 sub_session.json 仍 fresh 但 cookies 已被 server 弃用
+- 失败现象：first call 报 `final_url=https://i.sjtu.edu.cn/xtgl/login_slogin.html`，提示 sub_session 过期或 CAS 链未走完
+- 手动 workaround: `Remove-Item %APPDATA%\sjtu\sjtu-cli\config\sub_sessions\jwc.json` → cas_login 重做 → 拿新 cookies → ok
+- **可能后续修**：检测 final_url 含 `login_slogin.html` 时自动 invalidate sub_session 文件 + 重试 1 次（属 T2.x 增强）
+
+### data.rs 200 行硬限触底拆分
+
+- `commands/jwc/data.rs` 已 200 行 → 拆出 `data/{mod, gpa}.rs`
+- GPA 相关 5 个 struct（GpaData / GpaBySemesterData / SemesterGpa / SemesterFailure / SemesterKey + impl `From<&Gpa> for SemesterGpa`）一起搬到 `data/gpa.rs`
+- mod.rs 用 `pub(in crate::commands::jwc) use gpa::{...}` re-export，外层 handler 调用零改动

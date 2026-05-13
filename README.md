@@ -25,6 +25,7 @@
 | `sjtu services pending` | 办事大厅（my.sjtu.edu.cn）待办 / 已办 / 抄送 |
 | `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
 | `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天）；`--grid` comfy-table 表格输出 |
+| `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（自动循环 4 年 × 3 学期 N309131；真机 ~56s） |
 
 路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 

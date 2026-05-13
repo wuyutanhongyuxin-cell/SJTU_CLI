@@ -259,6 +259,12 @@
   - **真机 8 步全过**（T12 SJTU 校园网 2026-05-12）：today 显当周二剩余课 ✓ / week 显 5/11-5/17 7 列 / week --zs 1 显 03-02..03-08 / next --within 7 跨周排序 / next --within 31 12.4s / cache __current__:11 ✓ / cached 7.4s（first 12s 节省 4.6s）/ --grid comfy-table 7×8 行肉眼可读
   - **T12 暴露 + 已修**：ZF 9 SP 不再接受空 xnm/xqm（`default_xnm_xqm_by_date` 按月推 fallback）；plan stale 类型（oldzc/oldjc string / rqazc.xqj number）已在 dispatch prompt 校正；详见 `tasks/lessons.md` 2026-05-12 第二段
   - **follow-up bug**（独立 task）：`sjtu logout` 只清主 session 不清 sub_sessions/<name>.json，cas_login 命中 stale cache → 修 `cmd_logout` 清整个 sub_sessions/ 目录
+- [x] **T2 jwc GPA 计算 + 学期均分** ✅ 2026-05-13（9 task plan + 8 commit）：N309131 两阶段 SP（step1 统计触发 + step2 拉结果）+ 排名双轨解析（`gpapm_parsed`/`xjfpm_parsed: Option<RankPair>` 附加字段，camelCase 序列化）+ `gpa-by-semester` 多学期循环（4 年 × 3 学期，fail-soft，exit 始终 0）
+  - **新模块**：`src/apps/jwc/models/gpa.rs`（Gpa / RankPair / parse_rank / fill_parsed）/ `src/commands/jwc/data/gpa.rs`（GpaData / GpaBySemesterData / SemesterGpa / SemesterFailure / SemesterKey）/ `src/commands/jwc/gpa_handlers.rs`（cmd_gpa / cmd_gpa_by_semester）/ `src/apps/jwc/tests_parse.rs`（新增 N309131 fixture round-trip + fill_parsed 集成测试）
+  - **改文件**：`commands/jwc/data/mod.rs`（拆出 gpa.rs 后的 re-export 层）/ `commands/jwc/mod.rs` / `cli/jwc/mod.rs`（GpaBySemester variant + dispatch arm）
+  - **真机 smoke matrix**（6 单学期 + gpa-by-semester 12 学期循环 + fail-soft 边界 2030）：hxkc/njzy gpa=3.55 rank=15/16 ✓ / hxkc/nj server 返 HTML 错误页 → cmd_gpa 报错 ✗（by design）/ qbkc/njzy gpa=3.19 xjf=76.96 ✓ / gpa-by-semester 12 学期 56.5s（server-side N309131 step1 4-5s/次）succeeded=2（2023/12 + 2024/12）failed=10 exit=0 ✓ / fail-soft 边界 xnm=2030 all-failed exit=0 ✓
+  - **camelCase 输出**：`gpapmParsed` / `xjfpmParsed`（`#[serde(rename_all = "camelCase")]` on Gpa）
+  - **data.rs 200 行触底拆分**：`commands/jwc/data.rs` → `data/{mod.rs, gpa.rs}` 两文件
 
 ### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
 
