@@ -890,3 +890,77 @@ GET /api/task/me/processes/cc?limit=10&start=0
 - **无写操作触达**：本调研全程只 GET，"立即支付"按钮全程未点 —— 硬红线一致
 - **一卡通 phase-2**：调 `/api/me/info` 类 ecard 端点需校园网；CLI 暂不接，命令 `sjtu card balance` 留空待填
 
+---
+
+## 8. 学年校历 (i.sjtu / `apps/jwc::api::calendar`) ✅ 2026-05-13 真机抓 (T5 T0)
+
+### 8.0 调研背景
+
+T5 校历 iCal 导出 spec OQ1：i.sjtu 是否暴露 N 系列学年校历 endpoint，或退化到 fixture 人工维护。chrome-devtools 半自动 SOP 调研 (2026-05-13) 命中入口：首页底部 tab 列里"学期校历"link `<a data-toggle="tab" href="#class-xqxl" onclick="clickOnTab(5)">`，hash 切换走 lazy load。
+
+### 8.1 鉴权 + 通用 HTTP 形态
+
+- **入口**：`POST https://i.sjtu.edu.cn/xtgl/index_cxshjdAreaFive.html?localeKey=zh_CN&gnmkdm=index`
+- **鉴权**：jwc CAS sub_session（与 N305005/N2151/N358105 同 `apps/jwc::cas_login`），cookies = JSESSIONID@i.sjtu.edu.cn,/ + keepalive@i.sjtu.edu.cn,/ + 主 session JAAuthCookie
+- **Body**：空（form 无字段；学期默认是当前活跃学期，**不可指定 xnm/xqm**）
+- **Header**：`X-Requested-With: XMLHttpRequest`（jQuery `.load()` 默认带）
+- **Response**：`text/html;charset=UTF-8`（**非 JSON envelope**，与本 §文档其他 endpoint 不同）
+
+### 8.2 HTML schema
+
+返 17 KB 左右 HTML fragment（嵌入 #class-xqxl div）。关键结构：
+
+```html
+<table class="sch-xq class-comtb">
+  <thead>
+    <tr><th colspan='24'>上海交通大学2025-2026学年春季学期校历</th></tr>
+    <tr><th></th><th colspan='1'>2月</th><th colspan='6'>3月</th>...<th colspan='1'>7月</th></tr>
+    <tr>
+      <th>周</th>
+      <th class="xqbg">0</th><th class="xqbg">0</th>
+      <th class="xqbg">1</th><th class="xqbg">2</th>... <th class="xqbg">18</th><th class="xqbg">18</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>一</td>
+      <td id='2026-02-23' title=''>23</td>
+      <td id='' title=''></td>
+      <td id='2026-03-02' title=''>2</td>
+      ...
+    </tr>
+    <!-- 周二 ~ 周日 同结构 7 行 -->
+  </tbody>
+</table>
+```
+
+### 8.3 数据提取规则
+
+- **学期开始日期 `xqkssj`**：`min(td[id])` —— 所有 `<td id='YYYY-MM-DD'>` 中最早日期。2025-2026 春实测 `2026-02-23`（周一第 1 周）
+- **学期结束日期 `xqjssj`**：`max(td[id])`。2025-2026 春实测 `2026-07-05`（周日第 19 周）
+- **节假日 `jjr`**：每个 `td[title!='']` → `{rq: id 值, mc: title 值}`。2025-2026 春 endpoint 返 **全空 title** —— ZF SP 不给节假日数据
+- **调休 `tx`**：endpoint 无对应字段，全空
+
+**周次维度（spec §1.3 不需要，但 HTML 给了）**：`<th class="xqbg">N</th>` 出现两次的周（如 `5/5`/`9/9`/`18/18`）代表跨月边界 split 列；同一周物理上是 1 个，HTML 渲染分两 column 标月份。subagent 解析时按 `<td[id]>` 顺序而非 `<th>` 数字索引。
+
+### 8.4 已知坑
+
+- **不给节假日**：endpoint 只返学期框架（开始/结束 + 每天日期），不返国庆 / 春假 / 清明 / 劳动节 / 端午等。要么用户手工灌 fixture 的 `jjr` 数组，要么后续接 `jwc.sjtu.edu.cn/info/<id>.htm` 校历公告（HTML 静态页 / 无稳定 schema）
+- **不可指定学期**：body 无 xnm/xqm 字段，只返"当前活跃学期"。要查历史学期需要用户登录到对应学年再调
+- **HTML 不是 JSON**：需要 scraper crate 解析（项目已声明依赖，零增量）
+- **本学期当前**：响应学期可从标题正则提（`/(\d{4})-(\d{4})学年(春季|秋季|夏季|冬季)学期校历/`），但更可靠是 fixture 文件名 `academic_calendar_<xnm>_<xqm>.json` 由 CLI 入参决定
+- **小日历组件**：HTML 末尾另有"上一月/当月/下一月"小日历表（17 `<tr>` 一半属这块），iCal 导出不用，subagent 解析时只取主表 `<table class="sch-xq">`
+
+### 8.5 CLI 实装建议（T5 Task 5 调整）
+
+- `pub async fn academic_calendar_from_api(client: &Client, _xnm: &str, _xqm: &str) -> Result<AcademicCalendar>` —— body 空，response HTML，scraper parse 主表 `<td[id]>` 提取 `(rq, mc)` 列表
+- `xnm` / `xqm` 入参用于：(a) 返回的 envelope 标记字段；(b) 校验响应标题学期与入参一致（不一致 → warn 但不阻塞 fail-soft）
+- 优先 API path，失败回退 `load_from_fixture(xnm, xqm)`（plan Task 5 已设计）
+- **节假日补充**：fixture loader 优先用 `<config_dir>/academic_calendars/<xnm>_<xqm>.json`（部署期用户维护版）覆盖 endpoint 的空 `jjr`，让用户能自定义校历事件
+- 不实装节假日 endpoint 二次调研
+
+### 8.6 真机 fixture 落盘
+
+- `tests/fixtures/jwc/calendar_raw_2025_12.html`（17 KB raw HTML，subagent T5 集成测试时 mock 这个）
+- `tests/fixtures/jwc/academic_calendar_2025_12.json`（派生 JSON，schema 同 `models::calendar::AcademicCalendar`，jjr 空白由用户后续灌）
+
