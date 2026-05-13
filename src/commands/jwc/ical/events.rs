@@ -33,13 +33,13 @@ pub fn make_uid(key: &str) -> String {
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IcsEvent {
-    pub uid: String,
+    pub uid_seed: String,
     pub summary: String,
     pub dtstart: NaiveDateTime, // Asia/Shanghai 本地
     pub dtend: NaiveDateTime,
     pub location: Option<String>,
     pub description: Option<String>,
-    pub rrule: Option<Recurrence>, // Discrete → None，调用方 explode VEVENT
+    pub recurrence: Option<Recurrence>, // Discrete → None，调用方 explode VEVENT
     pub kind: IcsKind,
 }
 
@@ -48,9 +48,9 @@ pub struct IcsEvent {
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IcsKind {
-    Schedule, // N2151 课表
+    Class,    // N2151 课表
     Exam,     // N358105 考试
-    Holiday,  // cxshjdAreaFive 校历
+    Academic, // cxshjdAreaFive 校历
 }
 
 // ── term_first_monday ────────────────────────────────────────────────────────
@@ -92,43 +92,57 @@ fn combine(date: NaiveDate, time: NaiveTime) -> NaiveDateTime {
     date.and_time(time)
 }
 
-// ── from_kb_item ─────────────────────────────────────────────────────────────
+// ── from_kb_item helpers ─────────────────────────────────────────────────────
 
-/// KbItem（N2151 课表）→ IcsEvent。`first_monday` = `term_first_monday(xqkssj)`。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
-pub fn from_kb_item(kb: &KbItem, first_monday: NaiveDate) -> Option<IcsEvent> {
-    let summary = kb.kcmc.as_deref()?.to_string();
-    let xqj_str = kb.xqj.as_deref()?;
-    let weekday = parse_weekday(xqj_str)?;
-    let jcs = kb.jcs.as_deref().unwrap_or("");
-    let (start_jc, end_jc) = parse_jcs(jcs)?;
+/// 计算课表条目的 dtstart / dtend 元组。
+fn kb_dt_range(kb: &KbItem, first_monday: NaiveDate) -> Option<(NaiveDateTime, NaiveDateTime)> {
+    let weekday = parse_weekday(kb.xqj.as_deref()?)?;
+    let jcs_str = kb.jcs.as_deref().unwrap_or("");
+    let (start_jc, end_jc) = parse_jcs(jcs_str)?;
     let (start_time, _) = period_clock::lookup(start_jc)?;
     let (_, end_time) = period_clock::lookup(end_jc)?;
-
     let first_occurrence = first_monday + Duration::days(weekday.num_days_from_monday() as i64);
-    let dtstart = combine(first_occurrence, start_time);
-    let dtend = combine(first_occurrence, end_time);
+    Some((
+        combine(first_occurrence, start_time),
+        combine(first_occurrence, end_time),
+    ))
+}
 
-    let recurrence = kb
+/// 组装 KbItem 的 uid_seed 字符串（含学期 token，防跨学期碰撞）。
+fn kb_uid_seed(kb: &KbItem, xnm: &str, xqm: &str) -> String {
+    let kch = kb.kch.as_deref().unwrap_or("?");
+    let xqj = kb.xqj.as_deref().unwrap_or("?");
+    let jc = kb.jc.as_deref().unwrap_or("?");
+    let zcd = kb.zcd.as_deref().unwrap_or("?");
+    format!("{xnm}_{xqm}_class_{kch}_xqj{xqj}_jc{jc}_zcd{zcd}")
+}
+
+// ── from_kb_item ─────────────────────────────────────────────────────────────
+
+/// KbItem（N2151 课表）→ IcsEvent。`term_start` = `term_first_monday(xqkssj)`。
+// TODO(T5-T6): cmd_calendar 落地后删 allow
+#[allow(dead_code)]
+pub fn from_kb_item(kb: &KbItem, xnm: &str, xqm: &str, term_start: NaiveDate) -> Option<IcsEvent> {
+    let summary = kb.kcmc.as_deref()?.to_string();
+    let (dtstart, dtend) = kb_dt_range(kb, term_start)?;
+    let recurrence_parsed = kb
         .zcd
         .as_deref()
         .map(parse_zcd)
         .unwrap_or(Recurrence::Discrete { weeks: vec![] });
-    let rrule = to_rrule(&recurrence);
-    let kch = kb.kch.as_deref().unwrap_or("?");
-    let uid_key = format!("kb:{kch}:d{xqj_str}:j{jcs}");
+    let has_rrule = to_rrule(&recurrence_parsed).is_some();
+    let uid_seed = kb_uid_seed(kb, xnm, xqm);
     let description = kb.xm.as_deref().map(|t| format!("教师：{t}"));
 
     Some(IcsEvent {
-        uid: make_uid(&uid_key),
+        uid_seed,
         summary,
         dtstart,
         dtend,
         location: kb.cdmc.clone(),
         description,
-        rrule: rrule.map(|_| recurrence),
-        kind: IcsKind::Schedule,
+        recurrence: has_rrule.then_some(recurrence_parsed),
+        kind: IcsKind::Class,
     })
 }
 
@@ -148,49 +162,51 @@ fn parse_kssj(kssj: &str) -> Option<(NaiveDateTime, NaiveDateTime)> {
 /// Exam（N358105 考试）→ IcsEvent。
 // TODO(T5-T6): cmd_calendar 落地后删 allow
 #[allow(dead_code)]
-pub fn from_exam(exam: &Exam) -> Option<IcsEvent> {
+pub fn from_exam(exam: &Exam, xnm: &str, xqm: &str) -> Option<IcsEvent> {
     let kssj = exam.kssj.as_deref()?;
     let (dtstart, dtend) = parse_kssj(kssj)?;
     let kcmc = exam.kcmc.as_deref().unwrap_or("考试");
     let ksmc = exam.ksmc.as_deref().unwrap_or("");
     let kch = exam.kch.as_deref().unwrap_or("?");
+    let date_str = dtstart.format("%Y%m%d").to_string();
     let description = (!ksmc.is_empty()).then(|| ksmc.to_string());
 
     Some(IcsEvent {
-        uid: make_uid(&format!("exam:{kch}:{kssj}")),
-        summary: format!("【考试】{kcmc}"),
+        uid_seed: format!("{xnm}_{xqm}_exam_{kch}_{date_str}"),
+        summary: format!("[考] {kcmc}"),
         dtstart,
         dtend,
         location: exam.cdmc.clone(),
         description,
-        rrule: None,
+        recurrence: None,
         kind: IcsKind::Exam,
     })
 }
 
 // ── from_academic ────────────────────────────────────────────────────────────
 
-/// AcademicCalendar.jjr → Vec<IcsEvent>（整天事件，dtstart = dtend = 当天 00:00）。
+/// AcademicCalendar.jjr → Vec<IcsEvent>（整天事件）。
 // TODO(T5-T6): cmd_calendar 落地后删 allow
 #[allow(dead_code)]
-pub fn from_academic(cal: &AcademicCalendar) -> Vec<IcsEvent> {
-    let zero = NaiveTime::from_hms_opt(0, 0, 0).expect("00:00:00 合法");
+pub fn from_academic(cal: &AcademicCalendar, xnm: &str, xqm: &str) -> Vec<IcsEvent> {
     cal.jjr
         .iter()
         .filter_map(|h| {
             let rq = h.rq.as_deref()?;
             let mc = h.mc.as_deref().unwrap_or("节假日");
             let date = NaiveDate::parse_from_str(rq, "%Y-%m-%d").ok()?;
-            let dt = combine(date, zero);
+            let dtstart = date.and_hms_opt(0, 0, 0)?;
+            let dtend = date.and_hms_opt(23, 59, 0)?;
+            let date_str = date.format("%Y%m%d").to_string();
             Some(IcsEvent {
-                uid: make_uid(&format!("holiday:{rq}")),
-                summary: mc.to_string(),
-                dtstart: dt,
-                dtend: dt,
+                uid_seed: format!("{xnm}_{xqm}_holiday_{date_str}"),
+                summary: format!("[校历] {mc}"),
+                dtstart,
+                dtend,
                 location: None,
                 description: None,
-                rrule: None,
-                kind: IcsKind::Holiday,
+                recurrence: None,
+                kind: IcsKind::Academic,
             })
         })
         .collect()
