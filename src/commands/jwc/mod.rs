@@ -10,6 +10,7 @@
 mod data;
 mod gpa_handlers;
 mod handlers;
+mod ical;
 mod schedule_handlers;
 mod schedule_helpers;
 mod schedule_next;
