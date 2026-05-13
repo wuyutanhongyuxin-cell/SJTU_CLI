@@ -18,7 +18,9 @@ use crate::apps::jwc::{GpaRank, GpaScope};
 use crate::commands::jwc as jwc_cmds;
 use crate::output::OutputFormat;
 
+mod calendar_cli;
 mod schedule_cli;
+pub use calendar_cli::CalendarArgs;
 pub use schedule_cli::{NextArgs, TodayArgs, WeekArgs};
 
 /// `sjtu jwc gpa --scope` 的 ValueEnum。
@@ -153,6 +155,8 @@ pub enum JwcSub {
     Week(WeekArgs),
     /// 接下来若干天的课（默认 within=1 = 今天剩余）。
     Next(NextArgs),
+    /// 校历 iCal 导出（个人课表 + 考试 + 学年校历）。
+    Calendar(CalendarArgs),
 }
 
 /// 派发 `sjtu jwc <sub>` 到 `commands::jwc` 的 handler。
@@ -186,5 +190,10 @@ pub async fn dispatch(sub: JwcSub, fmt: Option<OutputFormat>) -> Result<()> {
         JwcSub::Today(a) => jwc_cmds::cmd_today(a.xnm, a.xqm, a.grid, fmt).await,
         JwcSub::Week(a) => jwc_cmds::cmd_week(a.xnm, a.xqm, a.zs, a.grid, fmt).await,
         JwcSub::Next(a) => jwc_cmds::cmd_next(a.xnm, a.xqm, a.within, a.limit, fmt).await,
+        JwcSub::Calendar(a) => {
+            let client = crate::apps::jwc::Client::connect().await?;
+            jwc_cmds::cmd_calendar(&client, a.xnm, a.xqm, a.to, a.no_academic, a.no_exams, fmt)
+                .await
+        }
     }
 }
