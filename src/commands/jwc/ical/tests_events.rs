@@ -1,8 +1,7 @@
 //! events.rs 单测（Task 4）：FNV-1a UID + 三路转换。
 
-use super::events::{
-    fnv1a_64, from_academic, from_exam, from_kb_item, make_uid, term_first_monday, IcsKind,
-};
+use super::events::{from_academic, from_exam, from_kb_item, term_first_monday, IcsKind};
+use super::uid::{fnv1a_64, make_uid};
 use crate::apps::jwc::{AcademicCalendar, Exam, Holiday, KbItem};
 use chrono::NaiveDate;
 

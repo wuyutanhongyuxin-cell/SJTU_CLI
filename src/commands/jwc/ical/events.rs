@@ -9,25 +9,6 @@ use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use crate::apps::jwc::{period_clock, AcademicCalendar, Exam, KbItem};
 use crate::commands::jwc::ical::recurrence::{parse_zcd, to_rrule, Recurrence};
 
-/// FNV-1a 64-bit hash，零依赖。testvec：`fnv1a_64("foobar") == "85944171f73967e8"`
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
-pub fn fnv1a_64(s: &str) -> String {
-    const OFFSET: u64 = 14_695_981_039_346_656_037;
-    const PRIME: u64 = 1_099_511_628_211;
-    let hash = s
-        .bytes()
-        .fold(OFFSET, |h, b| (h ^ b as u64).wrapping_mul(PRIME));
-    format!("{hash:016x}")
-}
-
-/// UID = `fnv1a_64(key)@sjtu-cli`，符合 RFC 5545 unique-id。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
-pub fn make_uid(key: &str) -> String {
-    format!("{}@sjtu-cli", fnv1a_64(key))
-}
-
 /// 三路转换后统一 ICS 事件载体，对应单个 VEVENT 核心字段。
 // TODO(T5-T6): cmd_calendar 落地后删 allow
 #[allow(dead_code)]

@@ -2,6 +2,7 @@
 
 pub mod events;
 pub mod recurrence;
+pub mod uid;
 pub mod vtimezone;
 pub mod writer;
 
