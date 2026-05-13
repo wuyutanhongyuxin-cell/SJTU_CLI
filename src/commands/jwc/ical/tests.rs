@@ -27,10 +27,16 @@ fn fold_line_folds_at_75_octets_for_ascii() {
 
 #[test]
 fn fold_line_does_not_split_multibyte_chars() {
-    // 课程"操作系统原理"+ padding 让边界落在中文字内
-    let pad = "A".repeat(70);
+    // "SUMMARY:"(8) + 65×"A"(65) = 73 bytes；下一个字符"操"(CJK, 3 bytes)
+    // 若按 byte 切则 73+3=76>75 会在 CJK 首字节前折断，验证算法必须按 char 边界保留。
+    let pad = "A".repeat(65);
     let line = format!("SUMMARY:{}操作系统原理", pad);
     let folded = fold_line(&line);
+    // 续行必须以 SP + 中文整体起，证明 fold 在 CJK 字符前折断而非中间
+    assert!(
+        folded.contains("\r\n 操作系统原理"),
+        "续行必须以 SP + 中文整体起，证明 fold 在 CJK 字符前折断而非中间"
+    );
     // 解 fold 重组，断言中文字串保留完整
     let unfolded = folded.replace("\r\n ", "");
     assert_eq!(unfolded, line);
@@ -40,6 +46,19 @@ fn fold_line_does_not_split_multibyte_chars() {
             assert!(std::str::from_utf8(part.as_bytes()).is_ok());
         }
     }
+}
+
+#[test]
+fn fold_line_exactly_75_octets_does_not_fold() {
+    let line = "A".repeat(75);
+    let folded = fold_line(&line);
+    assert!(!folded.contains("\r\n"), "恰好 75 octet 的行不应折");
+    assert_eq!(folded, line);
+}
+
+#[test]
+fn fold_line_empty_string_returns_empty() {
+    assert_eq!(fold_line(""), "");
 }
 
 #[test]

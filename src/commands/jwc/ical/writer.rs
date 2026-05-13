@@ -95,7 +95,7 @@ pub fn emit_vevent(buf: &mut String, e: &VEventFields) {
 }
 
 /// RFC 5545 §3.3.11：TEXT 类型必须转义 `\` / `;` / `,` / 换行。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
+// 随 emit_vevent 的 #[allow] 一起删除（dead_code 传播链上的从属节点）
 #[allow(dead_code)]
 fn escape_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
