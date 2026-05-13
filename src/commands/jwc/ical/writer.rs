@@ -34,8 +34,6 @@ pub fn emit_line(buf: &mut String, line: &str) {
 }
 
 /// VCALENDAR header（包含 VTIMEZONE）。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn emit_header(buf: &mut String, calname: &str) {
     emit_line(buf, "BEGIN:VCALENDAR");
     emit_line(buf, "VERSION:2.0");
@@ -48,8 +46,6 @@ pub fn emit_header(buf: &mut String, calname: &str) {
 }
 
 /// VCALENDAR footer。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn emit_footer(buf: &mut String) {
     emit_line(buf, "END:VCALENDAR");
 }
@@ -57,8 +53,6 @@ pub fn emit_footer(buf: &mut String) {
 /// 把一个 VEVENT 加入 buf。各字段已由 events.rs 准备好为 RFC 5545 string。
 ///
 /// `dtstart_local` / `dtend_local` 格式："20251015T080000"（local time 配 TZID 用）。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub struct VEventFields<'a> {
     pub uid: &'a str,
     pub dtstamp_utc: &'a str, // "20260513T024105Z"
@@ -70,8 +64,6 @@ pub struct VEventFields<'a> {
     pub rrule: Option<&'a str>,
 }
 
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn emit_vevent(buf: &mut String, e: &VEventFields) {
     emit_line(buf, "BEGIN:VEVENT");
     emit_line(buf, &format!("UID:{}", e.uid));
@@ -95,8 +87,6 @@ pub fn emit_vevent(buf: &mut String, e: &VEventFields) {
 }
 
 /// RFC 5545 §3.3.11：TEXT 类型必须转义 `\` / `;` / `,` / 换行。
-// 随 emit_vevent 的 #[allow] 一起删除（dead_code 传播链上的从属节点）
-#[allow(dead_code)]
 fn escape_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {

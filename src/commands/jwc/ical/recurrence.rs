@@ -8,8 +8,6 @@
 //! 解析失败时返回 `Discrete { weeks: vec![] }`（fail-soft，不 panic）。
 
 /// 周次重复类型决策结果。
-// TODO(T5-T6): cmd_calendar 落地后删 allow（dead_code 由 events.rs 消费后自然解除）
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Recurrence {
     /// 每周连续 `count` 次（全学期常规课）。
@@ -31,8 +29,6 @@ pub enum Recurrence {
 /// - `"1-3周"` → `Discrete { weeks: [1,2,3] }`（span ≤ 3，短开 explode）
 /// - `"5周"` → `Discrete { weeks: [5] }`（单整数视为离散单元素）
 /// - 无法解析 → `Discrete { weeks: [] }`（fail-soft）
-// TODO(T5-T6): cmd_calendar 落地后删 allow（dead_code 由 events.rs 消费后自然解除）
-#[allow(dead_code)]
 pub fn parse_zcd(zcd: &str) -> Recurrence {
     let s = zcd.trim();
 
@@ -135,8 +131,6 @@ fn try_parse_discrete(s: &str) -> Option<Recurrence> {
 ///
 /// - `Weekly` / `Biweekly` 返回 `Some(rrule_string)`
 /// - `Discrete` 返回 `None`（调用方负责 explode VEVENT，无需 RRULE）
-// TODO(T5-T6): cmd_calendar 落地后删 allow（dead_code 由 events.rs 消费后自然解除）
-#[allow(dead_code)]
 pub fn to_rrule(r: &Recurrence) -> Option<String> {
     match r {
         Recurrence::Weekly { count } => Some(format!("FREQ=WEEKLY;COUNT={count}")),

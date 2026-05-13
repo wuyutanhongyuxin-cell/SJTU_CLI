@@ -17,5 +17,6 @@ mod schedule_next;
 
 pub use gpa_handlers::cmd_gpa_by_semester;
 pub use handlers::{cmd_exams, cmd_gpa, cmd_grades, cmd_schedule};
+pub use ical::handler::cmd_calendar;
 pub use schedule_handlers::{cmd_today, cmd_week};
 pub use schedule_next::cmd_next;

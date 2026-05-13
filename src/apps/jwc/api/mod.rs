@@ -18,7 +18,9 @@ mod schedule;
 mod term;
 pub(crate) mod week_cache;
 
+pub use calendar::load_from_fixture;
 pub use gpa::{GpaRank, GpaScope};
+pub(crate) use term::default_xnm_xqm_by_date;
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU32, Ordering};

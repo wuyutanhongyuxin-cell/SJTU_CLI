@@ -10,8 +10,6 @@ use crate::apps::jwc::{period_clock, AcademicCalendar, Exam, KbItem};
 use crate::commands::jwc::ical::recurrence::{parse_zcd, to_rrule, Recurrence};
 
 /// 三路转换后统一 ICS 事件载体，对应单个 VEVENT 核心字段。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IcsEvent {
     pub uid_seed: String,
@@ -25,8 +23,6 @@ pub struct IcsEvent {
 }
 
 /// 事件来源标记。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IcsKind {
     Class,    // N2151 课表
@@ -37,8 +33,6 @@ pub enum IcsKind {
 // ── term_first_monday ────────────────────────────────────────────────────────
 
 /// 从学期开始日计算第 1 周周一（回退到当周周一）。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn term_first_monday(xqkssj: &str) -> Option<NaiveDate> {
     let date = NaiveDate::parse_from_str(xqkssj, "%Y-%m-%d").ok()?;
     let days_from_monday = date.weekday().num_days_from_monday();
@@ -101,8 +95,6 @@ fn kb_uid_seed(kb: &KbItem, xnm: &str, xqm: &str) -> String {
 // ── from_kb_item ─────────────────────────────────────────────────────────────
 
 /// KbItem（N2151 课表）→ IcsEvent。`term_start` = `term_first_monday(xqkssj)`。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn from_kb_item(kb: &KbItem, xnm: &str, xqm: &str, term_start: NaiveDate) -> Option<IcsEvent> {
     let summary = kb.kcmc.as_deref()?.to_string();
     let (dtstart, dtend) = kb_dt_range(kb, term_start)?;
@@ -141,8 +133,6 @@ fn parse_kssj(kssj: &str) -> Option<(NaiveDateTime, NaiveDateTime)> {
 }
 
 /// Exam（N358105 考试）→ IcsEvent。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn from_exam(exam: &Exam, xnm: &str, xqm: &str) -> Option<IcsEvent> {
     let kssj = exam.kssj.as_deref()?;
     let (dtstart, dtend) = parse_kssj(kssj)?;
@@ -167,8 +157,6 @@ pub fn from_exam(exam: &Exam, xnm: &str, xqm: &str) -> Option<IcsEvent> {
 // ── from_academic ────────────────────────────────────────────────────────────
 
 /// AcademicCalendar.jjr → Vec<IcsEvent>（整天事件）。
-// TODO(T5-T6): cmd_calendar 落地后删 allow
-#[allow(dead_code)]
 pub fn from_academic(cal: &AcademicCalendar, xnm: &str, xqm: &str) -> Vec<IcsEvent> {
     cal.jjr
         .iter()

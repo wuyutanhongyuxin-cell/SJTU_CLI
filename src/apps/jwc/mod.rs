@@ -25,7 +25,8 @@ pub mod period_clock;
 mod tests_parse;
 mod throttle;
 
-pub use api::{Client, GpaRank, GpaScope, LoginMeta};
+pub(crate) use api::default_xnm_xqm_by_date;
+pub use api::{load_from_fixture, Client, GpaRank, GpaScope, LoginMeta};
 pub use models::{
     parse_rank, AcademicCalendar, Exam, Gpa, Grade, Holiday, JwcPage, KbItem, MakeupClass,
     RankPair, RqAzc, Schedule,

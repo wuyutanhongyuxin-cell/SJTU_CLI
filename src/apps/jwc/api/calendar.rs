@@ -34,7 +34,6 @@ fn candidate_paths(xnm: &str, xqm: &str) -> Vec<PathBuf> {
 /// # Errors
 /// 两处路径均不存在时返回 `Err`，消息含候选路径列表。
 // TODO(T5-T7): 实装 academic_calendar_from_api(HTML 解析需先加 scraper 依赖)
-#[allow(dead_code)]
 pub fn load_from_fixture(xnm: &str, xqm: &str) -> Result<AcademicCalendar> {
     let candidates = candidate_paths(xnm, xqm);
     for path in &candidates {
