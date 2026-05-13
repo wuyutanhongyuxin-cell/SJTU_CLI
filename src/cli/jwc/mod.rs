@@ -111,6 +111,25 @@ pub enum JwcSub {
         to: Option<String>,
     },
 
+    /// 多学期 GPA 对比：客户端循环 N×3 学期 N309131，聚合输出（含 parsed 排名）。
+    GpaBySemester {
+        /// 课程范围：`hxkc` 核心课 / `qbkc` 全部课。
+        #[arg(long, value_enum, default_value_t = GpaScopeArg::Hxkc)]
+        scope: GpaScopeArg,
+
+        /// 排名范围：`njzy` 年级专业 / `nj` 年级 / `bj` 班级。
+        #[arg(long, value_enum, default_value_t = GpaRankArg::Njzy)]
+        rank: GpaRankArg,
+
+        /// 起始学年 4 位（默认当年 - 3，覆盖 4 年制本科；非 4 年学制需手给）。
+        #[arg(long)]
+        xnm_from: Option<u32>,
+
+        /// 截止学年 4 位（默认当年）。
+        #[arg(long)]
+        xnm_to: Option<u32>,
+    },
+
     /// 查询考试信息（N358105）。`--xnm`/`--xqm` 留空 = 当前学年/学期。
     Exams {
         /// 学年 4 位。
@@ -152,6 +171,12 @@ pub async fn dispatch(sub: JwcSub, fmt: Option<OutputFormat>) -> Result<()> {
             from,
             to,
         } => jwc_cmds::cmd_gpa(scope.into(), rank.into(), from, to, fmt).await,
+        JwcSub::GpaBySemester {
+            scope,
+            rank,
+            xnm_from,
+            xnm_to,
+        } => jwc_cmds::cmd_gpa_by_semester(scope.into(), rank.into(), xnm_from, xnm_to, fmt).await,
         JwcSub::Exams {
             xnm,
             xqm,
