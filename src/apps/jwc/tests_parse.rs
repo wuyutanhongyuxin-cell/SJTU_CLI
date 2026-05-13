@@ -227,3 +227,47 @@ fn gpa_fill_parsed_keeps_none_when_strings_invalid() {
     assert!(g.gpapm_parsed.is_none());
     assert!(g.xjfpm_parsed.is_none());
 }
+
+// === T2 集成测试：N309131 两阶段串联 + fixture 反序列化 ===
+
+const N309131_STEP1_FIXTURE: &str =
+    include_str!("../../../tests/fixtures/jwc/n309131_step1_success.txt");
+
+const N309131_STEP2_FIXTURE: &str =
+    include_str!("../../../tests/fixtures/jwc/n309131_step2_hxkc_njzy.json");
+
+#[test]
+fn fixture_step1_parses_as_success_string() {
+    let s: String = serde_json::from_str(N309131_STEP1_FIXTURE).unwrap();
+    assert!(s.contains("统计成功"), "fixture 必须含'统计成功'：{s}");
+}
+
+#[test]
+fn fixture_step2_parses_envelope_with_required_fields() {
+    let p: JwcPage<Gpa> = serde_json::from_str(N309131_STEP2_FIXTURE).unwrap();
+    assert!(!p.items.is_empty(), "fixture step2 必须含至少 1 条 item");
+    let g = &p.items[0];
+    assert!(g.gpa.is_some(), "gpa 字段必须保留");
+    assert!(g.gpapm.is_some(), "gpapm 字段必须保留");
+    assert!(
+        g.kcfw.is_some(),
+        "kcfw 字段必须保留（server 返中文 '核心课程' 而非 hxkc）"
+    );
+}
+
+#[test]
+fn fixture_step2_round_trip_with_fill_parsed() {
+    let mut p: JwcPage<Gpa> = serde_json::from_str(N309131_STEP2_FIXTURE).unwrap();
+    for g in &mut p.items {
+        g.fill_parsed();
+    }
+    let g = &p.items[0];
+    // 双轨断言：原字符串保留 + parsed 填充
+    assert!(g.gpapm.is_some());
+    assert!(
+        g.gpapm_parsed.is_some(),
+        "fill_parsed 后 gpapm_parsed 必须有值"
+    );
+    let rp = g.gpapm_parsed.as_ref().unwrap();
+    assert!(rp.total > 0, "fixture 排名 total 必须 > 0");
+}
