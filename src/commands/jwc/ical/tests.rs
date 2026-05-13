@@ -201,3 +201,21 @@ fn to_rrule_discrete_returns_none() {
     let r = Recurrence::Discrete { weeks: vec![3, 5] };
     assert_eq!(to_rrule(&r), None);
 }
+
+#[test]
+fn parse_zcd_single_week_discrete() {
+    // I-3：单整数 "5周" 应对齐 plan 契约 → Discrete { weeks: [5] }
+    assert_eq!(parse_zcd("5周"), Recurrence::Discrete { weeks: vec![5] });
+}
+
+#[test]
+fn parse_zcd_span_4_uses_weekly() {
+    // S-1：span=4 是从 explode（≤3）切到 Weekly（≥4）的临界点
+    assert_eq!(parse_zcd("1-4周"), Recurrence::Weekly { count: 4 });
+}
+
+#[test]
+fn parse_zcd_reverse_range_fails_soft() {
+    // S-2：起始 > 终止 走 fail-soft 而非 panic
+    assert_eq!(parse_zcd("10-5周"), Recurrence::Discrete { weeks: vec![] });
+}
