@@ -10,6 +10,7 @@
 //! - 公共 form 字段（queryModel.* / _search / nd / time / pkey）由 `build_common_form` 拼
 //! - 每个 SP 一文件，`impl Client { ... }` 分散在各子模块；公共 helper 在本文件。
 
+mod calendar;
 mod exams;
 mod gpa;
 mod grades;
