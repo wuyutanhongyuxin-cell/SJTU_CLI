@@ -95,8 +95,8 @@ sjtu-cli/
 ```
 
 ### 当前阶段
-- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标
-- **下一步**：S3 Phase 2 — 一卡通明细 / 校历 iCal / 通知聚合，或继续 jwc（课表 / GPA 计算）
+- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / S3f-T5 jwc 校历 iCal MVP（课表 + 考试 + 学年校历三路 fail-soft / RFC 5545 / FNV-1a UID 幂等；T9 真机待用户） / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标
+- **下一步**：T5 T9 用户亲跑 4 端日历 smoke；通过后进入 S3 Phase 2 候选 — 一卡通明细 / 通知聚合 / 图书馆借阅；或继续 jwc（培养方案 / 选课结果只读查询）
 - **详细进度**：见 `tasks/todo.md`
 - **经验总结**：见 `tasks/lessons.md`（V5.F 收尾：CDN 真实约束验证 / H2 throughput-bound vs RTT-bound / fail-soft 掩盖退化 / 优化走 sidetrack 主线保 baseline）
 

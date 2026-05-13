@@ -621,6 +621,40 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 
 ---
 
+## 2026-05-13 — T5 jwc 校历 iCal 导出
+
+### 已发生的事故 + 修复
+
+1. **T1 `#[expect(dead_code)]` 误判 pub 字段不触发 dead_code**
+   - 现象：subagent 报告 "pub 不触发 dead_code"，主对话 verify 时撤掉 allow 后发现 dead_code 实际会触发
+   - 根因：`#[expect(...)]` 在 binary crate + pub + Default + serde 构造的 struct 上不命中 "never constructed" lint
+   - 修复：回退到 `#[allow(dead_code)]` + TODO 注释，等下游 task（T6）真消费这些字段时再清掉
+   - 教训：lint expect 比 allow 更激进，对 serde-only 字段不可靠
+
+2. **T2 multibyte fold 测试 pad 长度选错**
+   - 现象：pad=70 让折行落在 ASCII 重复处，没测到 CJK 边界
+   - 修复：pad=65，累计 73 字节后再跟 3 字节 CJK 字符，稳定触发折行；断言 `\r\n 操` 出现
+   - 教训：RFC 5545 75-octet 折行的 UTF-8 安全测试要对准 octet 边界和多字节起点
+
+3. **T4 events.rs 213 行 > 200 限**
+   - 现象：subagent 报告 199 行，主对话 `wc -l` 实测 213 行
+   - 根因：subagent 按 LF 计行，工作区实际是 CRLF
+   - 修复：拆 `fnv1a_64` / `make_uid` 到 `uid.rs`（19 行），`events.rs` 降到 194 行
+   - 教训：主对话必须亲跑 `wc` / `measure` 验证行数，不信口述
+
+4. **T6 plan API path 错 10 处**
+   - 现象：plan 中直接写 `crate::apps::jwc::api::*`（private mod），实际 `client.exams` 是 4 参且返回 `JwcPage<Exam>`
+   - 修复：主对话在 brief 实装 subagent 时明确列出 10 处修正，统一走 re-export + `.items` 转 `Vec`
+   - 教训：plan 到 80% 准确就够了，剩余偏差要在主对话 brief 时显式补差，不要假装 plan 已经 100% 精确
+
+### 设计决策
+
+- **FNV-1a 64-bit 手卷 hash** 代替 sha1 依赖：UID / envelope hash 只需要稳定去重，不需要密码学强度；16 字符 hex 足够
+- **fail-soft 三路并发**：`tokio::join!` 并行拉课表 / 考试 / 学年校历；任一路失败只追加到 `warnings[]`，不阻塞其余两路
+- **raw stdout + explicit envelope 双模**：不带 `--json` / `--yaml` 且不传 `--to` 时直接把 `.ics` 写 stdout（管道友好）；显式 `--json` / `--yaml` 时输出 envelope；传 `--to` 时额外落盘，方便 agent 同时拿摘要和文件
+
+---
+
 ## 2026-05-13 — 水源写操作前必先确认分类（合规 + 不可补救）
 
 **触发情境**：自动用 `sjtu shuiyuan new-topic` 发项目宣传帖，CLI 默认不传 `--category` → uncategorized → shuiyuan-bot 自动重路由 + 警告 reply。用户当面反馈"不合规"，要求记录。

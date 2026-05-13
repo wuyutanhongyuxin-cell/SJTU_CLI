@@ -1,7 +1,7 @@
 # SJTU-CLI Agent 使用指南
 
 > 本文件面向 AI Agent（如 Claude）调用 SJTU-CLI 时的参考手册。
-> 所有命令输出均走标准 Envelope（`ok` / `data` / `error`），管道时自动 YAML，指定 `--json` 输出 JSON。
+> 默认命令输出走标准 Envelope（`ok` / `data` / `error`），管道时自动 YAML，指定 `--json` 输出 JSON；**例外**：`sjtu jwc calendar` 在不带 `--json` / `--yaml` 且不带 `--to` 时直接输出原始 `.ics`。
 
 ---
 
@@ -10,7 +10,7 @@
 - **Envelope schema**：`{ ok: bool, data: T | null, error: { code, message } | null, schema_version: "1" }`
 - **exit code**：0 = ok（含 fail-soft 的命令）；非 0 = 硬错误（鉴权失败 / 参数错误等）
 - **日志脱敏**：学号/姓名/cookie 默认不进 stdout；`--with-identity` 才全出（部分命令）
-- **管道友好**：stdout 仅 envelope；stderr 仅进度/警告行，不影响 jq/yq 解析
+- **管道友好**：默认 stdout 仅 envelope；`sjtu jwc calendar` raw 模式例外，stdout 直接是 `.ics`；stderr 仅进度/警告行，不影响 jq/yq 解析
 
 ---
 
@@ -95,6 +95,54 @@ sjtu jwc next --within 7 --limit 10 --yaml   # 未来 7 天前 10 节课
 ```
 
 **真实约束**：ZF 9 SP 不接受空 `xnm`/`xqm`；CLI 按当前日期推默认（春/秋/夏），`--xnm`/`--xqm` 可覆盖。
+
+### sjtu jwc calendar
+课表 + 考试 + 学年校历导出为 RFC 5545 `.ics`。
+
+**入参**：
+- `--xnm / --xqm`（同 grades；留空按今天自动推断）
+- `--to <PATH>`（把 `.ics` 写到文件；不传则原始 `.ics` 走 stdout）
+- `--no-academic`（跳过校历整天事件）
+- `--no-exams`（跳过考试事件）
+- `--json / --yaml`（强制输出 envelope；raw `.ics` 不再直写 stdout）
+
+**典型用法**：
+```bash
+sjtu jwc calendar > schedule.ics
+sjtu jwc calendar --xnm 2025 --xqm 12 --to ~/Desktop/sjtu.ics
+sjtu jwc calendar --to /tmp/sjtu.ics --json
+```
+
+### `sjtu jwc calendar --json` / `--yaml` envelope schema
+
+```json
+{
+  "ok": true,
+  "schema_version": "1",
+  "data": {
+    "xnm": "2025",
+    "xqm": "12",
+    "eventCount": 87,
+    "byKind": {
+      "class": 64,
+      "exam": 9,
+      "academic": 14
+    },
+    "hashHex": "85944171f73967e8",
+    "bytes": 24576,
+    "warnings": []
+  },
+  "error": null
+}
+```
+
+- `data.eventCount`：最终写入 `.ics` 的 VEVENT 总数
+- `data.byKind`：按 `class` / `exam` / `academic` 三类计数
+- `data.hashHex`：整份 `.ics` 的 FNV-1a 64-bit hash hex，可用于幂等对比
+- `data.bytes`：`.ics` 字节数
+- `data.warnings[]`：fail-soft 警告；例如课表 / 考试 / 学年校历三路里某一路失败时，这里会保留原因字符串
+
+**注意**：agent 若既要结构化摘要又要实际文件，推荐显式带 `--to <path> --json`。
 
 ### sjtu jwc exams
 考试信息查询（N358105）。

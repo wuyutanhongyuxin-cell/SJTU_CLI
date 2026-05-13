@@ -265,6 +265,12 @@
   - **真机 smoke matrix**（6 单学期 + gpa-by-semester 12 学期循环 + fail-soft 边界 2030）：hxkc/njzy gpa+rank ✓ / hxkc/nj server 返 HTML 错误页 → cmd_gpa 报错 ✗（by design）/ qbkc/njzy gpa+xjf ✓ / gpa-by-semester 12 学期 56.5s（server-side N309131 step1 4-5s/次）succeeded=N failed=12-N exit=0 ✓ / fail-soft 边界 xnm=2030 all-failed exit=0 ✓
   - **camelCase 输出**：`gpapmParsed` / `xjfpmParsed`（`#[serde(rename_all = "camelCase")]` on Gpa）
   - **data.rs 200 行触底拆分**：`commands/jwc/data.rs` → `data/{mod.rs, gpa.rs}` 两文件
+- [ ] **T5 jwc 校历 iCal 导出 MVP** — 2026-05-13：T6/T7/T8 已完成，待 T9 用户真机 smoke
+  - [x] T5 Plan T6：`cmd_calendar` handler + envelope + fail-soft（commit `980859f`）
+  - [x] T5 Plan T7：CLI Calendar variant + dispatch（commit `05642c3`）
+  - [x] T5 Plan T8：README / SKILL / todo / lessons / CLAUDE 文档收尾（本地 docs commit；SHA 见 `git log`）
+  - [ ] T5 Plan T9：用户亲跑 Google / Apple / Outlook / 手机本地 4 端日历 import + 重复 import 幂等 smoke
+  - [ ] T5 整体完成：jwc 校历 iCal 导出 MVP（待 T9 全绿）
 
 ### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
 
