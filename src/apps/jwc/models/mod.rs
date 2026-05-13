@@ -20,10 +20,6 @@ mod gpa;
 mod grade;
 mod schedule;
 
-#[expect(
-    unused_imports,
-    reason = "T5 Plan Task 5/6 落地后会从 apps/jwc/mod.rs 顶层 pub use 这三个类型；届时本 attribute 自动告警提示移除"
-)]
 pub use calendar::{AcademicCalendar, Holiday, MakeupClass};
 pub use exam::Exam;
 pub use gpa::{parse_rank, Gpa, RankPair};

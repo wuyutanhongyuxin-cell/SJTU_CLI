@@ -26,4 +26,7 @@ mod tests_parse;
 mod throttle;
 
 pub use api::{Client, GpaRank, GpaScope, LoginMeta};
-pub use models::{parse_rank, Exam, Gpa, Grade, JwcPage, KbItem, RankPair, RqAzc, Schedule};
+pub use models::{
+    parse_rank, AcademicCalendar, Exam, Gpa, Grade, Holiday, JwcPage, KbItem, MakeupClass,
+    RankPair, RqAzc, Schedule,
+};
