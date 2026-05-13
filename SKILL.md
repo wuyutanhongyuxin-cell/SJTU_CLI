@@ -52,7 +52,7 @@ sjtu logout                 # 清除主 session（建议同时手动删 sub_sess
 
 **输出关键字段**：
 - `data.gpa`：当前范围 GPA 字符串
-- `data.gpapm`：排名原字符串（如 `"15/16"`）
+- `data.gpapm`：排名原字符串（如 `"3/120"`）
 - `data.gpapmParsed`：解析结构 `{ rank, total, percentile }`（`null` 若解析失败）
 - `data.xjf`：学积分
 - `data.xjfpmParsed`：学积分排名解析结构

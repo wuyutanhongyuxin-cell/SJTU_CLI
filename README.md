@@ -24,8 +24,8 @@
 | `sjtu canvas-video list\|download\|clear-cache` | Canvas 课堂视频（v.sjtu.edu.cn）LTI 1.3 鉴权 + 单讲 / 批量 mp4 / `--audio-only` 抽 m4a |
 | `sjtu services pending` | 办事大厅（my.sjtu.edu.cn）待办 / 已办 / 抄送 |
 | `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
-| `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天）；`--grid` comfy-table 表格输出 |
-| `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（自动循环 4 年 × 3 学期 N309131；真机 ~56s） |
+| `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA + 排名双轨 (`gpapmParsed` / `xjfpmParsed`) / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天）；`--grid` comfy-table 表格输出 |
+| `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（默认 4 年 × 3 学期 N309131 循环，600ms throttle，fail-soft：失败学期落 `failed[]`，exit 始终 0；真机 12 学期 ~56s） |
 
 路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 
@@ -74,6 +74,17 @@ sjtu jwc schedule --yaml                    # 整学期课表 (N2151)
 ```
 
 > **真实约束**（T12 真机暴露）：ZF 9 SP 不再接受空 `xnm`/`xqm` —— CLI 按今天日期推默认（春/秋/夏），调用方可显式 `--xnm 2025 --xqm 12` 覆盖。
+
+教务 GPA + 排名（N309131 两阶段 SP，server 返 `"X/Y"` 字符串 → client 端 `parse_rank` 附加 `gpapmParsed`/`xjfpmParsed` 解析结构）：
+
+```bash
+sjtu jwc gpa --scope hxkc --rank njzy --yaml          # 单学期：核心课 + 年级专业排名（推荐）
+sjtu jwc gpa --scope qbkc --rank bj                   # 全部课 + 班级排名
+sjtu jwc gpa-by-semester --scope hxkc --rank njzy     # 多学期循环（默认当年-3 ~ 当年）
+sjtu jwc gpa-by-semester --xnm-from 2022 --xnm-to 2024 --yaml
+```
+
+> **注意**：`--rank nj`（纯年级）在部分 SJTU 实例上 server 返 HTML 错误页 → 单学期会 exit 1，多学期版会装进 `failed[]` 不崩。Agent 默认走 `--rank njzy`。N309131 server-side 统计每次 4-5s（不是网络 RTT），12 学期循环真机 ~56s。
 
 ## 技术栈
 

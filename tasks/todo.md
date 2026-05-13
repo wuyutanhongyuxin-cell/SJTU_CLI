@@ -262,7 +262,7 @@
 - [x] **T2 jwc GPA 计算 + 学期均分** ✅ 2026-05-13（9 task plan + 8 commit）：N309131 两阶段 SP（step1 统计触发 + step2 拉结果）+ 排名双轨解析（`gpapm_parsed`/`xjfpm_parsed: Option<RankPair>` 附加字段，camelCase 序列化）+ `gpa-by-semester` 多学期循环（4 年 × 3 学期，fail-soft，exit 始终 0）
   - **新模块**：`src/apps/jwc/models/gpa.rs`（Gpa / RankPair / parse_rank / fill_parsed）/ `src/commands/jwc/data/gpa.rs`（GpaData / GpaBySemesterData / SemesterGpa / SemesterFailure / SemesterKey）/ `src/commands/jwc/gpa_handlers.rs`（cmd_gpa / cmd_gpa_by_semester）/ `src/apps/jwc/tests_parse.rs`（新增 N309131 fixture round-trip + fill_parsed 集成测试）
   - **改文件**：`commands/jwc/data/mod.rs`（拆出 gpa.rs 后的 re-export 层）/ `commands/jwc/mod.rs` / `cli/jwc/mod.rs`（GpaBySemester variant + dispatch arm）
-  - **真机 smoke matrix**（6 单学期 + gpa-by-semester 12 学期循环 + fail-soft 边界 2030）：hxkc/njzy gpa=3.55 rank=15/16 ✓ / hxkc/nj server 返 HTML 错误页 → cmd_gpa 报错 ✗（by design）/ qbkc/njzy gpa=3.19 xjf=76.96 ✓ / gpa-by-semester 12 学期 56.5s（server-side N309131 step1 4-5s/次）succeeded=2（2023/12 + 2024/12）failed=10 exit=0 ✓ / fail-soft 边界 xnm=2030 all-failed exit=0 ✓
+  - **真机 smoke matrix**（6 单学期 + gpa-by-semester 12 学期循环 + fail-soft 边界 2030）：hxkc/njzy gpa+rank ✓ / hxkc/nj server 返 HTML 错误页 → cmd_gpa 报错 ✗（by design）/ qbkc/njzy gpa+xjf ✓ / gpa-by-semester 12 学期 56.5s（server-side N309131 step1 4-5s/次）succeeded=N failed=12-N exit=0 ✓ / fail-soft 边界 xnm=2030 all-failed exit=0 ✓
   - **camelCase 输出**：`gpapmParsed` / `xjfpmParsed`（`#[serde(rename_all = "camelCase")]` on Gpa）
   - **data.rs 200 行触底拆分**：`commands/jwc/data.rs` → `data/{mod.rs, gpa.rs}` 两文件
 

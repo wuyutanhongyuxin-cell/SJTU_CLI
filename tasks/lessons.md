@@ -601,8 +601,8 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 
 ### N309131 `qs_xnxq` + `zz_xnxq` 同传时是"累计截至"语义
 
-- 真机实测：`qs_xnxq` = `zz_xnxq` = "202312" → server 返 "截至 2023-12 学期的累计 GPA"，不是"2023-12 这一学期独自的 GPA"
-- 例：2023/12 ms=7 gpa=3.637 → 2024/12 ms=14 gpa=3.637（7 门累加 7 门，GPA 几乎不变）
+- 真机实测：`qs_xnxq` = `zz_xnxq` = "<YYYY><Q>" → server 返 "截至该学期的累计 GPA"，不是"该学期独自的 GPA"
+- 例：相邻两学期 `ms` 字段（门数）累加翻倍而 `gpa` 几乎不变 → 证实是 cumulative 而非 per-semester
 - client 不做语义翻译，dumb forward；`SemesterGpa.gpa` 是该学期截止的累计值，agent 自己理解
 
 ### sub_session client-fresh 但 server-dead 的盲点
