@@ -621,7 +621,23 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 
 ---
 
-## 2026-05-13 — 共享 staleness 语义要覆盖所有 auth 入口（CAS + OAuth2 + 未来…）
+## 2026-05-13 — 水源写操作前必先确认分类（合规 + 不可补救）
+
+**触发情境**：自动用 `sjtu shuiyuan new-topic` 发项目宣传帖，CLI 默认不传 `--category` → uncategorized → shuiyuan-bot 自动重路由 + 警告 reply。用户当面反馈"不合规"，要求记录。
+
+**错误模式**：
+1. 把"--category 是 Option<u64>"当成"可不传"，忘了 CP-W4 早就记录过 uncategorized 会被 bot 干预
+2. 写端点的"二次确认"只看 `--yes` 是否传，没看 category 是否选；--yes 防的是误发，不是误分类
+3. 站点 self-delete 422 + 首楼不可删 = 错分类后 CLI 无法补救，只能甩锅给 web UI
+
+**正确做法**：
+- 任何 `new-topic` / `reply` 前都先**对用户确认分类**，给候选列表（"程序员之家" / "学在交大" / "校园" / "闲聊" / etc.）
+- CLI 端可考虑加 `shuiyuan list-categories` 子命令（一次 `/categories.json` 拉全量 id+name），或不传 `--category` 时 stderr 警告
+- PM（pm-send）不受此规则约束（PM 没 category 概念）
+
+**规则**：
+- 水源写端点前一定问分类。不传 `--category` 默认走 uncategorized 是合规雷
+- 任何"事后不可逆 + 默认配置可能错"的命令，CLI 层应当在确认提示里把默认值也呈现出来供用户拍板
 
 **触发情境**：尝试 `sjtu shuiyuan new-topic` → 403 not_logged_in；`sjtu shuiyuan latest` 也 403。主 session captured_at=`2026-05-12`（昨天），shuiyuan.json captured_at=`2026-04-23`（19 天前）。soft_expires_at=30d 还未到 → OAuth2 path cache hit 直接复用，从未触发"重走 OAuth2"分支。Discourse 服务端的 `_t` token 已被 invalidate，但 client 端不知道。
 
