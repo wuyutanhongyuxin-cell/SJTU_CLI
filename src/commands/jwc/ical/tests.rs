@@ -115,3 +115,89 @@ fn emit_vevent_escapes_special_chars() {
     );
     assert!(buf.contains(r"SUMMARY:课\;有\,逗号\\反斜杠"));
 }
+
+// ── recurrence 单测（Task 3）──────────────────────────────────────────────
+use super::recurrence::{parse_zcd, to_rrule, Recurrence};
+
+#[test]
+fn parse_zcd_full_semester_weekly() {
+    // "1-18周" → Weekly { count: 18 }，全学期连续 18 周
+    assert_eq!(parse_zcd("1-18周"), Recurrence::Weekly { count: 18 });
+}
+
+#[test]
+fn parse_zcd_odd_biweekly() {
+    // "1-18周(单)" → 奇数周 1,3,5,...,17 共 9 次
+    assert_eq!(
+        parse_zcd("1-18周(单)"),
+        Recurrence::Biweekly {
+            count: 9,
+            first_week: 1
+        }
+    );
+}
+
+#[test]
+fn parse_zcd_even_biweekly() {
+    // "2-18周(双)" → 偶数周 2,4,...,18 共 9 次
+    assert_eq!(
+        parse_zcd("2-18周(双)"),
+        Recurrence::Biweekly {
+            count: 9,
+            first_week: 2
+        }
+    );
+}
+
+#[test]
+fn parse_zcd_discrete_list() {
+    // "3,5,7,11周" → Discrete { weeks: [3,5,7,11] }
+    assert_eq!(
+        parse_zcd("3,5,7,11周"),
+        Recurrence::Discrete {
+            weeks: vec![3, 5, 7, 11]
+        }
+    );
+}
+
+#[test]
+fn parse_zcd_short_span_explodes_discrete() {
+    // "1-3周" → span=3 ≤ 3，短开 explode 为 [1,2,3]
+    assert_eq!(
+        parse_zcd("1-3周"),
+        Recurrence::Discrete {
+            weeks: vec![1, 2, 3]
+        }
+    );
+}
+
+#[test]
+fn parse_zcd_invalid_returns_empty_discrete() {
+    // 无效字符串 → fail-soft Discrete { weeks: [] }
+    assert_eq!(parse_zcd("无效"), Recurrence::Discrete { weeks: vec![] });
+}
+
+#[test]
+fn to_rrule_weekly_produces_correct_string() {
+    let r = Recurrence::Weekly { count: 18 };
+    assert_eq!(to_rrule(&r), Some("FREQ=WEEKLY;COUNT=18".to_string()));
+}
+
+#[test]
+fn to_rrule_biweekly_produces_interval_2() {
+    let r = Recurrence::Biweekly {
+        count: 9,
+        first_week: 1,
+    };
+    assert_eq!(
+        to_rrule(&r),
+        Some("FREQ=WEEKLY;INTERVAL=2;COUNT=9".to_string())
+    );
+}
+
+#[test]
+fn to_rrule_discrete_returns_none() {
+    // Discrete 不生成 RRULE，由调用方 explode VEVENT
+    let r = Recurrence::Discrete { weeks: vec![3, 5] };
+    assert_eq!(to_rrule(&r), None);
+}
