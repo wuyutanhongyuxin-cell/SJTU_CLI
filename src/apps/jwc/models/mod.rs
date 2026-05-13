@@ -14,11 +14,14 @@
 //!
 //! 子模块：每个 SP 一个文件（mvp 4 个：grade / schedule / gpa / exam）。
 
+mod calendar;
 mod exam;
 mod gpa;
 mod grade;
 mod schedule;
 
+#[allow(unused_imports)]
+pub use calendar::{AcademicCalendar, Holiday, MakeupClass};
 pub use exam::Exam;
 pub use gpa::{parse_rank, Gpa, RankPair};
 pub use grade::Grade;
