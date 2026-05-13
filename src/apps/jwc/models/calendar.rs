@@ -7,7 +7,8 @@
 use serde::{Deserialize, Serialize};
 
 /// 学年校历 envelope。
-// TODO(T5-T5): T5 Plan Task 5 落地后删除
+// TODO(T5-T5): T5 Plan Task 5 (api/calendar.rs) 落地后删 allow —— binary crate 下
+// pub + Default + 仅 serde 构造的 struct 触发 dead_code 但不能用 #[expect]（lint 不被识别）
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +34,7 @@ pub struct AcademicCalendar {
 }
 
 /// 节假日条目。
-// TODO(T5-T5): T5 Plan Task 5 落地后删除
+// TODO(T5-T5): T5 Plan Task 5 落地后删 allow（同 AcademicCalendar 之 lint quirk）
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Holiday {
@@ -46,7 +47,7 @@ pub struct Holiday {
 }
 
 /// 调休条目。
-// TODO(T5-T5): T5 Plan Task 5 落地后删除
+// TODO(T5-T5): T5 Plan Task 5 落地后删 allow（同 AcademicCalendar 之 lint quirk）
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct MakeupClass {
