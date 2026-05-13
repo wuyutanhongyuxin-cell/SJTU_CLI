@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
 use url::Url;
 
+use crate::auth::cas::cache_is_fresh;
 use crate::cookies::{load_session, load_sub_session, save_sub_session, Cookie, Session};
 use crate::error::SjtuCliError;
 
@@ -42,9 +43,13 @@ pub struct OAuth2Result {
 pub async fn oauth2_login(name: &str, start_url: &str) -> Result<OAuth2Result> {
     let start = Instant::now();
 
-    // 1) 缓存命中且未过期 → 直接返回。
+    // 主 session 必须存在（cache hit 也要拿来比 captured_at staleness，对齐 cas::cache_is_fresh；
+    // 否则主重 login 后 sub_session soft TTL 未到但 Discourse `_t` 已被服务端 invalidate → 403 死循环）。
+    let main = load_session().context("主 session 不存在或损坏，请先 `sjtu login`")?;
+
+    // 1) 缓存命中且 fresh（未过期 + captured_at >= main）→ 直接返回。
     if let Ok(sess) = load_sub_session(name) {
-        if !sess.is_expired() {
+        if cache_is_fresh(&sess, &main) {
             info!(name, "命中 OAuth2 sub_session 缓存");
             return Ok(OAuth2Result {
                 session: sess,
@@ -54,11 +59,10 @@ pub async fn oauth2_login(name: &str, start_url: &str) -> Result<OAuth2Result> {
                 via_rookie_fallback: false,
             });
         }
-        debug!(name, "sub_session 已过期，重走 OAuth2");
+        debug!(name, "sub_session cache 失效（过期 or stale），重走 OAuth2");
     }
 
-    // 2) 主 session 必须存在且含 JAAuthCookie，否则无法走 OAuth2 自动授权。
-    let main = load_session().context("主 session 不存在或损坏，请先 `sjtu login`")?;
+    // 2) 主 session 必须含 JAAuthCookie，否则无法走 OAuth2 自动授权。
     if main.get("JAAuthCookie").is_none() {
         return Err(SjtuCliError::SessionExpired.into());
     }

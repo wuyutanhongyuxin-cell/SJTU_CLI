@@ -91,6 +91,49 @@ async fn oauth2_follow_errors_on_redirect_loop() {
     );
 }
 
+/// OAuth2 path cache hit gate 必须复用 cas::cache_is_fresh —— 否则主重 login 后
+/// 旧 sub_session soft TTL=30d 没到、Discourse `_t` 早被服务端 invalidate，
+/// CLI 仍错误命中 cache → 403 死循环。修复 commit 把 `!sess.is_expired()` 换成
+/// `cache_is_fresh(&sess, &main)`，本节断言该语义在 OAuth2 path 真实生效。
+mod cache_freshness_wiring {
+    use crate::auth::cas::cache_is_fresh;
+    use crate::cookies::{Cookie, Session};
+    use chrono::{Duration, Utc};
+
+    fn session_at_offset_secs(offset_secs: i64) -> Session {
+        let mut s = Session::new(vec![Cookie {
+            name: "_t".into(),
+            value: "discourse_session_token".into(),
+            domain: Some("shuiyuan.sjtu.edu.cn".into()),
+            path: Some("/".into()),
+            expires: None,
+        }]);
+        s.captured_at = Utc::now() + Duration::seconds(offset_secs);
+        s
+    }
+
+    #[test]
+    fn oauth2_cache_is_fresh_rejects_stale_sub_when_main_renewed() {
+        let main = session_at_offset_secs(0);
+        let stale_sub = session_at_offset_secs(-3600);
+        assert!(!stale_sub.is_expired(), "soft TTL 还在");
+        assert!(
+            !cache_is_fresh(&stale_sub, &main),
+            "OAuth2 path 必须按 staleness 拒命中，否则水源 403 死循环再现"
+        );
+    }
+
+    #[test]
+    fn oauth2_cache_is_fresh_accepts_sub_newer_than_main() {
+        let main = session_at_offset_secs(-60);
+        let sub = session_at_offset_secs(0);
+        assert!(
+            cache_is_fresh(&sub, &main),
+            "sub 比 main 新 → 接受命中（常规 cache 复用路径）"
+        );
+    }
+}
+
 #[tokio::test]
 async fn oauth2_follow_surfaces_non_2xx_final_status() {
     let mut server = mockito::Server::new_async().await;

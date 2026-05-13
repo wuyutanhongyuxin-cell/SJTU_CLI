@@ -618,3 +618,25 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 - `commands/jwc/data.rs` 已 200 行 → 拆出 `data/{mod, gpa}.rs`
 - GPA 相关 5 个 struct（GpaData / GpaBySemesterData / SemesterGpa / SemesterFailure / SemesterKey + impl `From<&Gpa> for SemesterGpa`）一起搬到 `data/gpa.rs`
 - mod.rs 用 `pub(in crate::commands::jwc) use gpa::{...}` re-export，外层 handler 调用零改动
+
+---
+
+## 2026-05-13 — 共享 staleness 语义要覆盖所有 auth 入口（CAS + OAuth2 + 未来…）
+
+**触发情境**：尝试 `sjtu shuiyuan new-topic` → 403 not_logged_in；`sjtu shuiyuan latest` 也 403。主 session captured_at=`2026-05-12`（昨天），shuiyuan.json captured_at=`2026-04-23`（19 天前）。soft_expires_at=30d 还未到 → OAuth2 path cache hit 直接复用，从未触发"重走 OAuth2"分支。Discourse 服务端的 `_t` token 已被 invalidate，但 client 端不知道。
+
+**错误模式（之前埋下来的）**：
+1. 5878fba 修 staleness 时只 patch `cas/mod.rs:cache_is_fresh` 一处，没同步 `oauth2/mod.rs`
+2. 该函数的设计意图（"主重 login 后旧 sub 必须 stale"）是跨 auth 入口的通用语义，但实现散落在 CAS 模块内 + `pub(crate)` 可见而 OAuth2 module 没引用
+3. lessons.md 当时（5878fba 期）也只记了 CAS path 的修法，没写"OAuth2 path 同等覆盖"这条 invariant
+
+**正确做法**（本次修法）：
+1. `oauth2/mod.rs` 把 `let main = load_session()` 提到函数顶（cache hit 也要拿 main 比 captured_at），把 `if !sess.is_expired()` 换成 `if cache_is_fresh(&sess, &main)`，复用 `cas::cache_is_fresh`
+2. `oauth2/tests.rs` 加 2 个 wiring test：stale sub 必拒命中 / sub 比 main 新接受命中（与 cas/tests.rs 同构造范式）
+3. 端到端验证：主 captured_at 不变情况下，shuiyuan.json captured_at 被新触发的 OAuth2 重做改写为运行时刻
+
+**规则**：
+- 新增任何 auth 入口（CAS / OAuth2 / 未来的 OIDC / SAML / 直拿 PAT 缓存…）的 cache hit 分支**必须**调用统一 staleness 函数（当前是 `cas::cache_is_fresh`），不可只看 `!sess.is_expired()`。这条规则进 reviewer checklist
+- 共享 invariant 散落 + 没文档化 = 长期债。Staleness、redact、Envelope 这类语义有专门 lesson 卡死
+- 修 bug 时不要只 patch 直接触发的入口，**枚举所有同类入口**一次性覆盖
+- `pub(crate)` 函数被新模块使用时要在新模块加单测确认"被正确接入"（不是测函数本身，是测 wiring）
