@@ -7,12 +7,15 @@
 use serde::{Deserialize, Serialize};
 
 /// 学年校历 envelope。
+// TODO(T5-T5): T5 Plan Task 5 落地后删除
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct AcademicCalendar {
+    /// 学年码，例 "2025" 表示 2025-2026 学年。
     #[serde(default)]
     pub xnm: Option<String>,
+    /// 学期码，例 "12" = 春季学期、"3" = 秋季学期、"16" = 暑期。
     #[serde(default)]
     pub xqm: Option<String>,
     /// 学期开始日期 "YYYY-MM-DD"。
@@ -30,8 +33,9 @@ pub struct AcademicCalendar {
 }
 
 /// 节假日条目。
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// TODO(T5-T5): T5 Plan Task 5 落地后删除
 #[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct Holiday {
     /// 日期 "YYYY-MM-DD"。
     #[serde(default)]
@@ -42,8 +46,9 @@ pub struct Holiday {
 }
 
 /// 调休条目。
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+// TODO(T5-T5): T5 Plan Task 5 落地后删除
 #[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct MakeupClass {
     /// 源日期（不上课）。
     #[serde(default)]
