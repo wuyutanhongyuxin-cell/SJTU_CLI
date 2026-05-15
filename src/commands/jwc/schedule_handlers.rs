@@ -1,7 +1,5 @@
-//! `sjtu jwc today / week / next`：T9 衍生命令 handler。
-//!
+//! `sjtu jwc today / week`：T9 衍生命令 handler。
 //! 数据流：infer_current_week → schedule_by_week → oldzc 过滤 → period_clock join。
-//! helpers（filter / expand_jc / parse_xqj 等）在 schedule_helpers.rs。
 
 use anyhow::Result;
 use chrono::Local;

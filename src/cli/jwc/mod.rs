@@ -14,8 +14,7 @@
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
 
-use crate::apps::jwc::{Client, GpaRank, GpaScope, LOGIN_URL};
-use crate::auth::cas::with_cas_refresh;
+use crate::apps::jwc::{GpaRank, GpaScope};
 use crate::commands::jwc as jwc_cmds;
 use crate::output::OutputFormat;
 
@@ -191,22 +190,6 @@ pub async fn dispatch(sub: JwcSub, fmt: Option<OutputFormat>) -> Result<()> {
         JwcSub::Today(a) => jwc_cmds::cmd_today(a.xnm, a.xqm, a.grid, fmt).await,
         JwcSub::Week(a) => jwc_cmds::cmd_week(a.xnm, a.xqm, a.zs, a.grid, fmt).await,
         JwcSub::Next(a) => jwc_cmds::cmd_next(a.xnm, a.xqm, a.within, a.limit, fmt).await,
-        JwcSub::Calendar(a) => {
-            let a_xnm = a.xnm.clone();
-            let a_xqm = a.xqm.clone();
-            let a_to = a.to.clone();
-            let a_no_acad = a.no_academic;
-            let a_no_exams = a.no_exams;
-            with_cas_refresh("jwc", LOGIN_URL, |session| {
-                let xnm = a_xnm.clone();
-                let xqm = a_xqm.clone();
-                let to = a_to.clone();
-                async move {
-                    let client = Client::from_session(session)?;
-                    jwc_cmds::cmd_calendar(&client, xnm, xqm, to, a_no_acad, a_no_exams, fmt).await
-                }
-            })
-            .await
-        }
+        JwcSub::Calendar(a) => jwc_cmds::run_calendar(a, fmt).await,
     }
 }

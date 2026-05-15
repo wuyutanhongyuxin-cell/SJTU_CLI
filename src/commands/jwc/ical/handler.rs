@@ -109,10 +109,8 @@ fn resolve_term(xnm: Option<String>, xqm: Option<String>) -> (String, String) {
     }
 }
 
-/// 并行 fetch 课表 / 考试 / 校历；SubSessionStale 直接上抛触发 retry；其余失败 fail-soft。
-///
-/// 关键：SubSessionStale 必须重 raise variant 而非 string format，
-/// 否则 downcast_ref 链断裂，with_cas_refresh retry 收不到信号。
+/// 并行 fetch 课表 / 考试 / 校历；SubSessionStale 直接上抛触发 retry；其余 fail-soft。
+/// 关键：stale 必须重 raise variant（非 string format），否则 downcast 链断裂 retry 失效。
 async fn fetch_all(
     client: &Client,
     xnm: &str,
@@ -122,7 +120,6 @@ async fn fetch_all(
     warnings: &mut Vec<String>,
 ) -> anyhow::Result<(Schedule, Vec<Exam>, AcademicCalendar)> {
     let class_fut = client.schedule(Some(xnm), Some(xqm));
-
     let exam_fut = async {
         if no_exams {
             Ok::<Vec<Exam>, anyhow::Error>(vec![])
@@ -133,7 +130,6 @@ async fn fetch_all(
                 .map(|p| p.items)
         }
     };
-
     let academic_fut = async {
         if no_academic {
             Ok(AcademicCalendar::default())
@@ -148,18 +144,14 @@ async fn fetch_all(
             }
         }
     };
-
     let (c_r, e_r, a_r) = tokio::join!(class_fut, exam_fut, academic_fut);
 
-    // 任一路返 SubSessionStale 立即重 raise variant，触发 with_cas_refresh retry。
-    // 必须重 raise variant 而非 string format，否则破坏 downcast 链。
-    for err_opt in [c_r.as_ref().err(), e_r.as_ref().err(), a_r.as_ref().err()]
+    // 任一路 SubSessionStale 立即重 raise variant，触发 with_cas_refresh retry。
+    for err in [c_r.as_ref().err(), e_r.as_ref().err(), a_r.as_ref().err()]
         .iter()
         .flatten()
     {
-        if let Some(crate::error::SjtuCliError::SubSessionStale(name)) =
-            err_opt.downcast_ref::<crate::error::SjtuCliError>()
-        {
+        if let Some(crate::error::SjtuCliError::SubSessionStale(name)) = err.downcast_ref() {
             return Err(crate::error::SjtuCliError::SubSessionStale(name).into());
         }
     }
@@ -176,7 +168,6 @@ async fn fetch_all(
         warnings.push(format!("学年校历 fixture 失败: {e:#}"));
         AcademicCalendar::default()
     });
-
     Ok((schedule, exams, academic))
 }
 
