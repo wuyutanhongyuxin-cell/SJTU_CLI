@@ -16,10 +16,12 @@ use crate::cookies::{load_session, load_sub_session, save_sub_session, Cookie, S
 use crate::error::SjtuCliError;
 
 mod client;
+pub mod retry;
 #[cfg(test)]
 mod tests;
 
 use client::build_client;
+pub use retry::with_cas_refresh;
 
 /// 跟 redirect 的最大跳数。SJTU 实测一般 4-6 跳；给 10 留余量、防死循环。
 const MAX_REDIRECT_HOPS: u8 = 10;
