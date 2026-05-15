@@ -265,12 +265,17 @@
   - **真机 smoke matrix**（6 单学期 + gpa-by-semester 12 学期循环 + fail-soft 边界 2030）：hxkc/njzy gpa+rank ✓ / hxkc/nj server 返 HTML 错误页 → cmd_gpa 报错 ✗（by design）/ qbkc/njzy gpa+xjf ✓ / gpa-by-semester 12 学期 56.5s（server-side N309131 step1 4-5s/次）succeeded=N failed=12-N exit=0 ✓ / fail-soft 边界 xnm=2030 all-failed exit=0 ✓
   - **camelCase 输出**：`gpapmParsed` / `xjfpmParsed`（`#[serde(rename_all = "camelCase")]` on Gpa）
   - **data.rs 200 行触底拆分**：`commands/jwc/data.rs` → `data/{mod.rs, gpa.rs}` 两文件
-- [ ] **T5 jwc 校历 iCal 导出 MVP** — 2026-05-13：T6/T7/T8 已完成，待 T9 用户真机 smoke
+- [x] **T5 jwc 校历 iCal 导出 MVP** ✅ 2026-05-15：T1-T9 全部完成
   - [x] T5 Plan T6：`cmd_calendar` handler + envelope + fail-soft（commit `980859f`）
   - [x] T5 Plan T7：CLI Calendar variant + dispatch（commit `05642c3`）
-  - [x] T5 Plan T8：README / SKILL / todo / lessons / CLAUDE 文档收尾（本地 docs commit；SHA 见 `git log`）
-  - [ ] T5 Plan T9：用户亲跑 Google / Apple / Outlook / 手机本地 4 端日历 import + 重复 import 幂等 smoke
-  - [ ] T5 整体完成：jwc 校历 iCal 导出 MVP（待 T9 全绿）
+  - [x] T5 Plan T8：README / SKILL / todo / lessons / CLAUDE 文档收尾（commit `f6ef916` + `c630284` 文档与代码对齐修正双轨）
+  - [x] T5 Plan T9：用户亲跑 Google / Apple / Outlook / 手机本地 4 端日历 import + 重复 import 幂等 smoke ✅ 2026-05-15（用户报告"全部都成功了"）
+  - [x] T5 整体完成：jwc 校历 iCal 导出 MVP ✅ 2026-05-15
+  - **T9 真机新发现**（详见 `tasks/lessons.md` 2026-05-15 段）：
+    - DTSTAMP 跨次刷新让 `hashHex` 不能跨次对比 → SKILL.md L141 已修，明确幂等靠 UID
+    - README / SKILL 文档与 handler 实际逻辑不一致 3 处（`--to` envelope 触发条件）→ commit `f6ef916` 修
+    - iOS 微信 `.ics` 分享菜单不带"日历"（微信内部分享 ≠ iOS 系统 share sheet），走"存储到文件 → 文件 App 打开"或邮件附件即可
+    - **staleness-fix 覆盖盲区**：jwc sub_session 客户端 captured_at fresh 但 ZF 服务端 session timeout（30 分钟），第一次跑 calendar eventCount=0 + warnings 含 redirect → login_slogin.html。临时修复=精准删 `sub_sessions/jwc.json` 触发主 session CAS 自动跳转刷新；**根治待 follow-up task**：所有 CAS 子系统读端点封装"detect HTML/login redirect → 删 sub_session → 重走 CAS 一次"的 retry 层
 
 ### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
 

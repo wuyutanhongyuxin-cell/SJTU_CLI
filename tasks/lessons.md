@@ -651,7 +651,44 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 
 - **FNV-1a 64-bit 手卷 hash** 代替 sha1 依赖：UID / envelope hash 只需要稳定去重，不需要密码学强度；16 字符 hex 足够
 - **fail-soft 三路并发**：`tokio::join!` 并行拉课表 / 考试 / 学年校历；任一路失败只追加到 `warnings[]`，不阻塞其余两路
-- **raw stdout + explicit envelope 双模**：不带 `--json` / `--yaml` 且不传 `--to` 时直接把 `.ics` 写 stdout（管道友好）；显式 `--json` / `--yaml` 时输出 envelope；传 `--to` 时额外落盘，方便 agent 同时拿摘要和文件
+- **raw stdout + explicit envelope 双模**：不带 `--json` / `--yaml` 且不传 `--to` 时直接把 `.ics` 写 stdout（管道友好）；显式 `--json` / `--yaml` **或** 传 `--to` 时输出 envelope（任一即触发，`--to` 额外把 raw `.ics` 落盘），方便 agent 同时拿摘要和文件
+
+---
+
+## 2026-05-15 — T5 校历 iCal MVP T9 真机收尾
+
+**真机 smoke 全过**：用户亲跑 Google Calendar / Apple Calendar / Outlook / 手机本地 4 端 import + 重复 import 幂等，全部通过。
+
+### 真机新发现 + 已落地修正
+
+1. **DTSTAMP 跨次刷新让文件级 hashHex 不稳定**
+   - 现象：同 fixture 跑两次，bytes 完全一致但 hashHex 不同（`1c54f21acbcc4733` vs `c68c7ecc304b700f`）。`Compare-Object` 显示仅 `DTSTAMP` 行差异（实例化时间戳）；UID / DTSTART / DTEND / SUMMARY / RRULE 100% 跨次稳定。
+   - 根因：RFC 5545 `DTSTAMP` 是 instance creation timestamp，每次跑必不同；FNV-1a 64-bit 算的是整份 `.ics` 字节，自然跟着变。
+   - 已修：commit `c630284` 修 SKILL.md L141 措辞，明确 `hashHex` 仅供单次调用内 sanity check；跨次幂等保证靠 VEVENT 的 UID（基于学年/学期/类型/课号 FNV-1a 确定性）。客户端按 UID dedup。
+   - 教训：写文档时把"hash 用于幂等比对"这种口语化描述当真，没核对算法实际包不包变量字段。RFC 5545 看一眼 `DTSTAMP` 定义即可避免。
+
+2. **README / SKILL 三处描述与 handler 实际逻辑不一致**
+   - 现象：T8 文档收尾时 README L76/L87 + SKILL L104 写"`--to` 仅额外落盘"，实际 `commands/jwc/ical/handler.rs:82` 是 `matches!(fmt, Json|Yaml) || to.is_some()` —— 即 `--json` / `--yaml` / `--to` **任一** 就触发 envelope 模式，stdout 改输 envelope；不带任何 flag 才把 raw `.ics` 写 stdout。
+   - 根因：T8 plan 模板里的描述抄了一遍但没核对 handler 真实判定。
+   - 已修：commit `f6ef916`（README L76/L87 + SKILL L104 三轨）。
+   - 教训：纯文档 task 容易踩"应然 vs 实然"。下次写 envelope 行为描述前先 grep handler 入口看 `use_envelope` 实际判定式。
+
+3. **iOS 微信打开 `.ics` 的分享菜单不带"日历"**
+   - 现象：用户在 iOS 微信里点开 `.ics` → "..." → "分享"，菜单里没有"日历"应用图标。
+   - 根因：微信预览界面的"分享"是微信内部分享（给好友），不走 iOS 系统级 share sheet；`.ics` → 系统日历的路径要求 UTI 派发到日历 app，必须经"用其他应用打开" / "存储到文件" / 邮件附件三条路径之一。
+   - 替代路径（已给用户）：① 微信 → "..." → "存储到文件" → "文件" App 双击 `.ics` → 系统弹"添加 N 个事件"；② 邮件发自己，邮件 App 原生支持点附件直接加日历事件。
+   - 教训：iOS "app 内分享" ≠ "OS 级 share sheet"。文档给用户 import 教程时要分清，别只写"分享 → 日历"这种依赖 share sheet 的路径。
+
+4. **jwc sub_session 客户端 captured_at fresh 但 ZF 服务端已 timeout（staleness-fix 覆盖盲区）**
+   - 现象：T9 第一次跑 `sjtu jwc calendar` `eventCount=0` + `warnings` 含 ZF redirect 到 `login_slogin.html`。客户端 `sub_sessions/jwc.json` captured_at 在 30 天窗口内（`cache_is_fresh ✓`），但 ZF 服务端 session 已 timeout（ZF 默认 30 分钟无活动）。
+   - 临时修复（T9 内）：精准删 `%APPDATA%\sjtu\sjtu-cli\config\sub_sessions\jwc.json` 一个文件，让 `Client::connect` 用还有效的主 session（cookie 30 天）走 CAS 自动跳转刷新；**不动主 session** 避免用户重新扫码。删完第二次 `eventCount=16` / `warnings=[]`。
+   - 根因：5878fba 之后的 staleness-fix 只在客户端 `captured_at` 上判断（`cas/mod.rs` / `oauth2/mod.rs` 都已 patch），但**没在 ZF redirect 检测路径上挂自动刷新**——服务端 TTL 30 分钟级，远短于客户端 cache TTL，必然漏。
+   - 跟进 task（不阻塞 T5 收尾）：jwc HTTP 客户端在所有读端点封装层检测"返回 HTML / 跳转 `login_slogin.html`" → 自动删 `sub_sessions/jwc.json` + 重走 CAS 一次，失败再向上抛。同样思路应用到其他 CAS 子系统。
+   - 教训：staleness 不能只看客户端 fresh，因为服务端 TTL 比客户端 cache 短的情况很常见。任何 reuse-then-fail 的链路都要做"用一次失败就刷一次"的 retry 包装，cache freshness 检查 + redirect 检测要双轨。
+
+### 设计决策（追加）
+
+- **跨次幂等靠 UID 不靠文件 hash**：UID 设计上对 `(xnm, xqm, kind, kch, ...)` 取 FNV-1a 是确定性的，跨次重跑稳定；hashHex 单次内可做 sanity（如外部篡改检测），跨次没意义
 
 ---
 
