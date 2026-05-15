@@ -42,7 +42,7 @@ pub(in crate::commands::jwc) struct GpaBySemesterData {
     pub failed: Vec<SemesterFailure>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(in crate::commands::jwc) struct SemesterKey {
     pub xnm: String,
     pub xqm: String,

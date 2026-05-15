@@ -62,7 +62,7 @@ pub async fn cmd_calendar(
     let mut warnings: Vec<String> = vec![];
 
     let (schedule, exams, academic) =
-        fetch_all(client, &xnm, &xqm, no_exams, no_academic, &mut warnings).await;
+        fetch_all(client, &xnm, &xqm, no_exams, no_academic, &mut warnings).await?;
 
     let term_start = academic
         .xqkssj
@@ -109,7 +109,10 @@ fn resolve_term(xnm: Option<String>, xqm: Option<String>) -> (String, String) {
     }
 }
 
-/// 并行 fetch 课表 / 考试 / 校历；任一失败时 fail-soft，记录 warning。
+/// 并行 fetch 课表 / 考试 / 校历；SubSessionStale 直接上抛触发 retry；其余失败 fail-soft。
+///
+/// 关键：SubSessionStale 必须重 raise variant 而非 string format，
+/// 否则 downcast_ref 链断裂，with_cas_refresh retry 收不到信号。
 async fn fetch_all(
     client: &Client,
     xnm: &str,
@@ -117,7 +120,7 @@ async fn fetch_all(
     no_exams: bool,
     no_academic: bool,
     warnings: &mut Vec<String>,
-) -> (Schedule, Vec<Exam>, AcademicCalendar) {
+) -> anyhow::Result<(Schedule, Vec<Exam>, AcademicCalendar)> {
     let class_fut = client.schedule(Some(xnm), Some(xqm));
 
     let exam_fut = async {
@@ -148,6 +151,19 @@ async fn fetch_all(
 
     let (c_r, e_r, a_r) = tokio::join!(class_fut, exam_fut, academic_fut);
 
+    // 任一路返 SubSessionStale 立即重 raise variant，触发 with_cas_refresh retry。
+    // 必须重 raise variant 而非 string format，否则破坏 downcast 链。
+    for err_opt in [c_r.as_ref().err(), e_r.as_ref().err(), a_r.as_ref().err()]
+        .iter()
+        .flatten()
+    {
+        if let Some(crate::error::SjtuCliError::SubSessionStale(name)) =
+            err_opt.downcast_ref::<crate::error::SjtuCliError>()
+        {
+            return Err(crate::error::SjtuCliError::SubSessionStale(name).into());
+        }
+    }
+
     let schedule = c_r.unwrap_or_else(|e| {
         warnings.push(format!("课表 (N2151) 失败: {e:#}"));
         Schedule::default()
@@ -161,7 +177,7 @@ async fn fetch_all(
         AcademicCalendar::default()
     });
 
-    (schedule, exams, academic)
+    Ok((schedule, exams, academic))
 }
 
 /// 三路事件合并：KbItem 课表 / Exam 考试 / AcademicCalendar 校历。

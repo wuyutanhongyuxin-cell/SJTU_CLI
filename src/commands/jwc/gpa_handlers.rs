@@ -9,7 +9,8 @@ use std::time::Duration;
 use anyhow::Result;
 use chrono::Datelike;
 
-use crate::apps::jwc::{Client, GpaRank, GpaScope};
+use crate::apps::jwc::{Client, GpaRank, GpaScope, LOGIN_URL};
+use crate::auth::cas::with_cas_refresh;
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{GpaBySemesterData, SemesterFailure, SemesterGpa, SemesterKey};
@@ -33,36 +34,54 @@ pub async fn cmd_gpa_by_semester(
     let (from, to) = resolve_xnm_range(xnm_from, xnm_to);
     let requested = enumerate_semesters(from, to);
 
-    let client = Client::connect().await?;
+    let requested_for_op = requested.clone();
+    let (succeeded, failed) = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let requested = requested_for_op.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            let mut succeeded: Vec<SemesterGpa> = Vec::new();
+            let mut failed: Vec<SemesterFailure> = Vec::new();
 
-    let mut succeeded: Vec<SemesterGpa> = Vec::new();
-    let mut failed: Vec<SemesterFailure> = Vec::new();
-
-    for key in &requested {
-        let xnxq = format!("{}{}", key.xnm, key.xqm);
-        let res = client.gpa(scope, rank, Some(&xnxq), Some(&xnxq)).await;
-        tokio::time::sleep(Duration::from_millis(SEMESTER_QUERY_THROTTLE_MS)).await;
-        match res {
-            Ok(mut env) if !env.items.is_empty() => {
-                let mut g = env.items.remove(0);
-                g.fill_parsed();
-                let mut sg: SemesterGpa = (&g).into();
-                sg.xnm = key.xnm.clone();
-                sg.xqm = key.xqm.clone();
-                succeeded.push(sg);
+            for key in &requested {
+                let xnxq = format!("{}{}", key.xnm, key.xqm);
+                let res = client.gpa(scope, rank, Some(&xnxq), Some(&xnxq)).await;
+                tokio::time::sleep(Duration::from_millis(SEMESTER_QUERY_THROTTLE_MS)).await;
+                match res {
+                    Ok(mut env) if !env.items.is_empty() => {
+                        let mut g = env.items.remove(0);
+                        g.fill_parsed();
+                        let mut sg: SemesterGpa = (&g).into();
+                        sg.xnm = key.xnm.clone();
+                        sg.xqm = key.xqm.clone();
+                        succeeded.push(sg);
+                    }
+                    Ok(_) => failed.push(SemesterFailure {
+                        xnm: key.xnm.clone(),
+                        xqm: key.xqm.clone(),
+                        reason: "items 空（疑似未到统计时间或该学期无成绩）".into(),
+                    }),
+                    Err(e) => {
+                        // SubSessionStale 必须上抛触发 retry，不能装进 failed 吞掉
+                        if e.downcast_ref::<crate::error::SjtuCliError>()
+                            .map(|err| {
+                                matches!(err, crate::error::SjtuCliError::SubSessionStale(_))
+                            })
+                            .unwrap_or(false)
+                        {
+                            return Err(e);
+                        }
+                        failed.push(SemesterFailure {
+                            xnm: key.xnm.clone(),
+                            xqm: key.xqm.clone(),
+                            reason: format!("{e:#}"),
+                        });
+                    }
+                }
             }
-            Ok(_) => failed.push(SemesterFailure {
-                xnm: key.xnm.clone(),
-                xqm: key.xqm.clone(),
-                reason: "items 空（疑似未到统计时间或该学期无成绩）".into(),
-            }),
-            Err(e) => failed.push(SemesterFailure {
-                xnm: key.xnm.clone(),
-                xqm: key.xqm.clone(),
-                reason: format!("{e:#}"),
-            }),
+            Ok::<_, anyhow::Error>((succeeded, failed))
         }
-    }
+    })
+    .await?;
 
     let data = GpaBySemesterData {
         scope: scope_str(scope),

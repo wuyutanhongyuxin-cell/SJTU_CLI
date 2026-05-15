@@ -6,7 +6,8 @@
 use anyhow::Result;
 use chrono::Local;
 
-use crate::apps::jwc::Client;
+use crate::apps::jwc::{Client, LOGIN_URL};
+use crate::auth::cas::with_cas_refresh;
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{TodayData, TodayItem, WeekData};
@@ -21,10 +22,27 @@ pub async fn cmd_today(
     grid: bool,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let cw = client
-        .infer_current_week(xnm.as_deref(), xqm.as_deref())
-        .await?;
+    let xnm_q = xnm.clone();
+    let xqm_q = xqm.clone();
+    let (cw, sched_opt) = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let xnm = xnm_q.clone();
+        let xqm = xqm_q.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            let cw = client
+                .infer_current_week(xnm.as_deref(), xqm.as_deref())
+                .await?;
+            if cw == 0 || cw > 18 {
+                return Ok::<_, anyhow::Error>((cw, None));
+            }
+            let sched = client
+                .schedule_by_week(xnm.as_deref(), xqm.as_deref(), cw)
+                .await?;
+            Ok((cw, Some(sched)))
+        }
+    })
+    .await?;
+
     let today = Local::now().date_naive();
     let today_weekday = iso_weekday(today);
     let today_iso = today.format("%Y-%m-%d").to_string();
@@ -50,9 +68,7 @@ pub async fn cmd_today(
         );
     }
 
-    let sched = client
-        .schedule_by_week(xnm.as_deref(), xqm.as_deref(), cw)
-        .await?;
+    let sched = sched_opt.expect("学期内 cw 必返 Some(sched)");
     let filtered = filter_kb_in_week(&sched.kb_list, cw);
     let now_time = Local::now().time();
 
@@ -116,15 +132,24 @@ pub async fn cmd_week(
     grid: bool,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let cw = client
-        .infer_current_week(xnm.as_deref(), xqm.as_deref())
-        .await?;
-    let query_zs = zs.unwrap_or(cw.clamp(1, 18));
-
-    let sched = client
-        .schedule_by_week(xnm.as_deref(), xqm.as_deref(), query_zs)
-        .await?;
+    let xnm_q = xnm.clone();
+    let xqm_q = xqm.clone();
+    let (cw, query_zs, sched) = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let xnm = xnm_q.clone();
+        let xqm = xqm_q.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            let cw = client
+                .infer_current_week(xnm.as_deref(), xqm.as_deref())
+                .await?;
+            let query_zs = zs.unwrap_or(cw.clamp(1, 18));
+            let sched = client
+                .schedule_by_week(xnm.as_deref(), xqm.as_deref(), query_zs)
+                .await?;
+            Ok::<_, anyhow::Error>((cw, query_zs, sched))
+        }
+    })
+    .await?;
     let filtered = filter_kb_in_week(&sched.kb_list, query_zs);
 
     let mut items: Vec<TodayItem> = filtered
