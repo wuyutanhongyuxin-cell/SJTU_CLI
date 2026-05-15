@@ -57,12 +57,11 @@ pub(super) async fn visit_sp_page(
         .map(|u| u.path().to_string())
         .unwrap_or_default();
     if !final_path.eq_ignore_ascii_case(page_path) {
-        return Err(SjtuCliError::UpstreamError(format!(
-            "{label} pre-GET 被 ZF 内部重定向到 {final_path}（期望 {page_path}）；\
-             session 在 ZF 侧未认证 —— 通常是 sub_session 过期或 CAS 链未走完。\
-             请 `sjtu logout && sjtu login` 后重试。final_url={final_url}"
-        ))
-        .into());
+        tracing::debug!(
+            label, %final_url, %final_path, expected = page_path,
+            "ZF 服务端 stale（pre-GET 被重定向到 login_slogin），触发 SubSessionStale"
+        );
+        return Err(SjtuCliError::SubSessionStale("jwc").into());
     }
     debug!(target: "jwc::bind", page_path, gnmkdm, "SP page bound to ZF session");
     Ok(())
