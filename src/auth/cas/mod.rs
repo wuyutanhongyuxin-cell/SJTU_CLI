@@ -1,7 +1,5 @@
-//! CAS 子系统跳转通用通道。手动跟 302 链，逐跳收 Set-Cookie，
-//! 缓存到 `~/.sjtu-cli/sub_sessions/<name>.json`。
-//! 不用 reqwest 默认 follow 的原因：自动跟会吞中间响应，拿不到 jaccount 链路上的 cookie；
-//! 也无法在最终停在 jaccount（JAAuthCookie 过期 or 需要交互确认）时立刻报错。
+//! CAS 子系统跳转通用通道：手动跟 302 链 + 缓存到 `~/.sjtu-cli/sub_sessions/<name>.json`。
+//! 不用 reqwest 默认 follow（吞中间 cookie / 无法停在 jaccount 报错）。
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -183,20 +181,11 @@ async fn follow_redirect_chain(
 }
 
 fn is_redirect(s: StatusCode) -> bool {
-    matches!(
-        s,
-        StatusCode::MOVED_PERMANENTLY
-            | StatusCode::FOUND
-            | StatusCode::SEE_OTHER
-            | StatusCode::TEMPORARY_REDIRECT
-            | StatusCode::PERMANENT_REDIRECT
-    )
+    matches!(s.as_u16(), 301 | 302 | 303 | 307 | 308)
 }
 
-/// sub_session 缓存是否仍 fresh。需同时满足：未到 sub soft TTL，且
-/// `captured_at` 不早于主 session。后者修 T12 真机 bug——主重 login 后
-/// 旧 sub 文件 soft_expires_at=30d 未到、被 `cas_login` 错误复用失效 cookie。
-/// 设计对齐 OAuth/JWT 的 `iat < last_invalidation_at` staleness 模式。
+/// sub_session 缓存 fresh：未到 soft TTL **且** captured_at ≥ 主 session（修 T12 真机
+/// "主重 login 后旧 sub 仍 ≤30d TTL 被错复用"bug，对齐 OAuth iat < last_invalidation 模式）。
 pub(crate) fn cache_is_fresh(sub: &Session, main: &Session) -> bool {
     !sub.is_expired() && sub.captured_at >= main.captured_at
 }
