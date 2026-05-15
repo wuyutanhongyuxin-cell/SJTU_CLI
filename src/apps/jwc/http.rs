@@ -138,14 +138,13 @@ async fn post_once<T: serde::de::DeserializeOwned>(
         .await
         .map_err(|e| SjtuCliError::NetworkError(format!("{url}: 读 body: {e}")))?;
 
-    // session 过期：CAS 把 final_url 改写到 jaccount，或正方主动给登录页 HTML
+    // ZF 服务端 stale：CAS 把 final_url 改写到 jaccount，或正方主动给登录页 HTML
     if final_url.contains("jaccount.sjtu.edu.cn")
         || body.trim_start().starts_with("<!DOCTYPE")
         || body.trim_start().starts_with("<html")
     {
-        return Err(SjtuCliError::UpstreamError(format!(
-            "{label} session 已失效（被打回登录页 final_url={final_url}）；请 `sjtu logout` 后重新 `sjtu login`"
-        )).into());
+        tracing::debug!(label, %final_url, "ZF 服务端 stale，触发 SubSessionStale");
+        return Err(SjtuCliError::SubSessionStale("jwc").into());
     }
 
     if !status.is_success() {
