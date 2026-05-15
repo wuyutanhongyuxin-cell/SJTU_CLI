@@ -26,6 +26,7 @@ mod tests_parse;
 mod throttle;
 
 pub(crate) use api::default_xnm_xqm_by_date;
+pub(crate) use api::LOGIN_URL;
 pub use api::{load_from_fixture, Client, GpaRank, GpaScope, LoginMeta};
 pub use models::{
     parse_rank, AcademicCalendar, Exam, Gpa, Grade, Holiday, JwcPage, KbItem, MakeupClass,

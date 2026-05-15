@@ -5,7 +5,8 @@
 
 use anyhow::Result;
 
-use crate::apps::jwc::{Client, GpaRank, GpaScope};
+use crate::apps::jwc::{Client, GpaRank, GpaScope, LOGIN_URL};
+use crate::auth::cas::with_cas_refresh;
 use crate::output::{render, Envelope, OutputFormat};
 
 use super::data::{ExamsData, GpaData, GradesData, ScheduleData};
@@ -18,10 +19,19 @@ pub async fn cmd_grades(
     limit: u32,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let env_resp = client
-        .grades(xnm.as_deref(), xqm.as_deref(), page, limit)
-        .await?;
+    let xnm_q = xnm.clone();
+    let xqm_q = xqm.clone();
+    let env_resp = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let xnm = xnm_q.clone();
+        let xqm = xqm_q.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            client
+                .grades(xnm.as_deref(), xqm.as_deref(), page, limit)
+                .await
+        }
+    })
+    .await?;
 
     let returned = env_resp.items.len();
     let data = GradesData {
@@ -43,8 +53,18 @@ pub async fn cmd_schedule(
     xqm: Option<String>,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let resp = client.schedule(xnm.as_deref(), xqm.as_deref()).await?;
+    let xnm_q = xnm.clone();
+    let xqm_q = xqm.clone();
+    let resp = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let xnm = xnm_q.clone();
+        let xqm = xqm_q.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            client.schedule(xnm.as_deref(), xqm.as_deref()).await
+        }
+    })
+    .await?;
+
     let returned = resp.kb_list.len();
     let data = ScheduleData {
         xnm,
@@ -66,10 +86,17 @@ pub async fn cmd_gpa(
     zz_xnxq: Option<String>,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let mut env_resp = client
-        .gpa(scope, rank, qs_xnxq.as_deref(), zz_xnxq.as_deref())
-        .await?;
+    let qs = qs_xnxq.clone();
+    let zz = zz_xnxq.clone();
+    let mut env_resp = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let qs = qs.clone();
+        let zz = zz.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            client.gpa(scope, rank, qs.as_deref(), zz.as_deref()).await
+        }
+    })
+    .await?;
     // 双轨：保留 server 给的 gpapm/xjfpm 字符串，client 端 fill_parsed 填 RankPair。
     for g in &mut env_resp.items {
         g.fill_parsed();
@@ -95,10 +122,20 @@ pub async fn cmd_exams(
     limit: u32,
     fmt: Option<OutputFormat>,
 ) -> Result<()> {
-    let client = Client::connect().await?;
-    let env_resp = client
-        .exams(xnm.as_deref(), xqm.as_deref(), page, limit)
-        .await?;
+    let xnm_q = xnm.clone();
+    let xqm_q = xqm.clone();
+    let env_resp = with_cas_refresh("jwc", LOGIN_URL, |session| {
+        let xnm = xnm_q.clone();
+        let xqm = xqm_q.clone();
+        async move {
+            let client = Client::from_session(session)?;
+            client
+                .exams(xnm.as_deref(), xqm.as_deref(), page, limit)
+                .await
+        }
+    })
+    .await?;
+
     let returned = env_resp.items.len();
     let data = ExamsData {
         xnm,
