@@ -46,7 +46,7 @@ use crate::auth::cas::cas_login;
 /// 该 URL 触发：i.sjtu → jaccount?sid=...&service=... → JAAuthCookie 验证 → 302 回 i.sjtu?ticket=ST-XXX
 /// → ZF 校验 ticket → 绑定 user_id 到 JSESSIONID → 302 到 nav 主页。
 /// 实测 2026-04-26（详 tasks/lessons.md）。
-pub(super) const LOGIN_URL: &str = "https://i.sjtu.edu.cn/jaccountlogin";
+pub(crate) const LOGIN_URL: &str = "https://i.sjtu.edu.cn/jaccountlogin";
 
 /// 教务 Client。
 pub struct Client {
@@ -61,7 +61,7 @@ pub struct Client {
 }
 
 /// 登录元数据，暴露给 CLI 构造 Envelope。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LoginMeta {
     pub from_cache: bool,
     pub elapsed_ms: u128,
@@ -69,20 +69,30 @@ pub struct LoginMeta {
 }
 
 impl Client {
-    /// CAS 跳转 → 注入 cookie 构造 reqwest Client。
+    /// 便利门面：cas_login + from_session。
+    /// 不参与 with_cas_refresh 的场景下用（如 status / debug）；
+    /// 参与 retry 的命令应在 handler 层用 with_cas_refresh + Client::from_session。
     pub async fn connect() -> Result<Self> {
         let r = cas_login("jwc", LOGIN_URL).await?;
-        let http = build_http_client(&r.session)?;
+        let mut client = Self::from_session(r.session)?;
+        client.login = LoginMeta {
+            from_cache: r.from_cache,
+            elapsed_ms: r.elapsed_ms,
+            final_url: r.final_url,
+        };
+        Ok(client)
+    }
+
+    /// 从已有 session 构造 Client（cookie jar + http builder）。
+    /// 给 with_cas_refresh 的闭包内调用 —— CAS 已在 helper 外做，不重复。
+    pub fn from_session(session: crate::cookies::Session) -> Result<Self> {
+        let http = build_http_client(&session)?;
         Ok(Self {
             http,
             throttle: Arc::new(Throttle::new()),
             time_counter: AtomicU32::new(0),
             visited_sp: Mutex::new(HashSet::new()),
-            login: LoginMeta {
-                from_cache: r.from_cache,
-                elapsed_ms: r.elapsed_ms,
-                final_url: r.final_url,
-            },
+            login: LoginMeta::default(),
         })
     }
 
@@ -129,5 +139,36 @@ impl Client {
             ("time", time),
             ("pkey", String::new()),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests_from_session {
+    use super::*;
+    use crate::cookies::{Cookie, Session};
+
+    /// from_session 从已有 session 构造 client，不调 cas_login（不依赖文件系统）。
+    #[test]
+    fn from_session_builds_client_without_cas_login() {
+        let session = Session::new(vec![Cookie {
+            name: "JSESSIONID".into(),
+            value: "abc12345".into(),
+            domain: Some("i.sjtu.edu.cn".into()),
+            path: Some("/".into()),
+            expires: None,
+        }]);
+
+        let client = Client::from_session(session).expect("from_session 应成功");
+        assert!(!client.login.from_cache, "from_session 不知道 cache 状态");
+        assert_eq!(client.login.elapsed_ms, 0);
+        assert_eq!(client.login.final_url, "");
+    }
+
+    #[test]
+    fn login_meta_default_is_empty() {
+        let m = LoginMeta::default();
+        assert!(!m.from_cache);
+        assert_eq!(m.elapsed_ms, 0);
+        assert_eq!(m.final_url, "");
     }
 }
