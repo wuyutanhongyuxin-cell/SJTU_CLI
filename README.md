@@ -73,7 +73,7 @@ sjtu jwc next --within 7 --limit 10 --yaml  # 未来 7 天前 10 节课
 sjtu jwc schedule --yaml                    # 整学期课表 (N2151)
 ```
 
-教务校历导出（`sjtu jwc calendar` 把课表 / 考试 / 学年校历合成 RFC 5545 `.ics`；不显式指定输出格式时默认把原始 `.ics` 写到 stdout，显式 `--json` / `--yaml` 时输出 envelope，`--to` 额外落盘）：
+教务校历导出（`sjtu jwc calendar` 把课表 / 考试 / 学年校历合成 RFC 5545 `.ics`；不带任何输出标志时默认把原始 `.ics` 直接写到 stdout；任一 `--json` / `--yaml` / `--to` 都会触发 envelope 模式 —— 此时 stdout 输出 envelope，`--to` 同时把 raw `.ics` 落盘）：
 
 ```bash
 sjtu jwc calendar > schedule.ics
@@ -84,7 +84,7 @@ sjtu jwc calendar --to /tmp/cal.ics --json
 
 - `--xnm`：学年 4 位；留空则按今天自动推断
 - `--xqm`：学期编码；`3`=秋 / `12`=春 / `16`=夏，留空则按今天自动推断
-- `--to`：把 `.ics` 写到指定路径；不传则原始 `.ics` 走 stdout
+- `--to`：把 `.ics` 写到指定路径；**带 `--to` 会触发 envelope 模式**（stdout 改输出 envelope，raw `.ics` 只去文件）。不传 `--to` 且不带 `--json` / `--yaml` 时原始 `.ics` 才走 stdout
 - `--no-academic`：跳过学年校历整天事件
 - `--no-exams`：跳过考试事件
 - 幂等 UID：每个 VEVENT 的 UID 基于 `<学年>_<学期>_<类型>_<课号>_<...>` 的 FNV-1a 64-bit hash 生成；重复 import 同一份 `.ics` 不应产生重复事件

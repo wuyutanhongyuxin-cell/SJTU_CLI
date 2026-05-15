@@ -101,7 +101,7 @@ sjtu jwc next --within 7 --limit 10 --yaml   # 未来 7 天前 10 节课
 
 **入参**：
 - `--xnm / --xqm`（同 grades；留空按今天自动推断）
-- `--to <PATH>`（把 `.ics` 写到文件；不传则原始 `.ics` 走 stdout）
+- `--to <PATH>`（把 `.ics` 写到文件；**带 `--to` 也触发 envelope 模式** —— stdout 改输出 envelope，raw `.ics` 只去文件）
 - `--no-academic`（跳过校历整天事件）
 - `--no-exams`（跳过考试事件）
 - `--json / --yaml`（强制输出 envelope；raw `.ics` 不再直写 stdout）
