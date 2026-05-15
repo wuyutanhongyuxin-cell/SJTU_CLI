@@ -47,6 +47,12 @@ pub enum SjtuCliError {
     /// 但行动项是 `sjtu canvas setup` 而非 `sjtu login`。
     #[error("Canvas PAT 无效或已过期。请重新运行 `sjtu canvas setup` 生成新 token。")]
     CanvasTokenInvalid,
+
+    /// 子系统 sub_session 客户端 cookie 仍 fresh 但服务端已 timeout
+    /// （ZF 30 分钟无活动 / OAuth2 短 TTL 等）。`with_cas_refresh` 捕获此 variant
+    /// 触发 clear_sub_session + 重 CAS。`&'static str` 是子系统 name（"jwc" 等）。
+    #[error("子系统 `{0}` session 已被服务端失效")]
+    SubSessionStale(&'static str),
 }
 
 impl SjtuCliError {
@@ -63,6 +69,35 @@ impl SjtuCliError {
             Self::ShuiyuanApi(_) => "shuiyuan_api",
             Self::CanvasApi(_) => "canvas_api",
             Self::CanvasTokenInvalid => "session_expired",
+            Self::SubSessionStale(_) => "session_expired",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sub_session_stale_has_session_expired_code() {
+        let e = SjtuCliError::SubSessionStale("jwc");
+        assert_eq!(e.code(), "session_expired");
+    }
+
+    #[test]
+    fn sub_session_stale_carries_subsystem_name() {
+        let e = SjtuCliError::SubSessionStale("jwc");
+        let s = format!("{e}");
+        assert!(s.contains("jwc"), "错误消息应包含子系统 name，实际：{s}");
+    }
+
+    #[test]
+    fn sub_session_stale_can_be_downcast_from_anyhow() {
+        let e: anyhow::Error = SjtuCliError::SubSessionStale("jwc").into();
+        let downcasted = e.downcast_ref::<SjtuCliError>();
+        assert!(matches!(
+            downcasted,
+            Some(SjtuCliError::SubSessionStale("jwc"))
+        ));
     }
 }
