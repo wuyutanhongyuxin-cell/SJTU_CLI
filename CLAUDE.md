@@ -95,10 +95,10 @@ sjtu-cli/
 ```
 
 ### 当前阶段
-- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / S3f-T5 jwc 校历 iCal MVP（课表 + 考试 + 学年校历三路 fail-soft / RFC 5545 / FNV-1a UID 幂等；4 端真机 + 幂等通过 2026-05-15） / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标
-- **下一步**：S3 Phase 2 候选 — 一卡通明细 / 通知聚合 / 图书馆借阅；或继续 jwc（培养方案 / 选课结果只读查询）；follow-up：CAS 子系统读端点封装 redirect-detect → auto-refresh retry 层（T9 暴露的 staleness-fix 盲区）
+- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / S3f-T5 jwc 校历 iCal MVP（课表 + 考试 + 学年校历三路 fail-soft / RFC 5545 / FNV-1a UID 幂等；4 端真机 + 幂等通过 2026-05-15） / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标 / **CAS retry 层 follow-up（T9 真机盲区根治；jwc 9 个 call site 透明 auto-refresh；SubSessionStale 强类型信号 + downcast 跨 anyhow 链 6 测守护；ical fail-soft 吃信号 bug 修复；T8 真机 CP-CR-1/2/3 全过 2026-05-16）**
+- **下一步**：S3 Phase 2 候选 — 一卡通明细 / 通知聚合 / 图书馆借阅；或继续 jwc（培养方案 / 选课结果只读查询）；新 follow-up：① elec/services/jwbmessage 接入 CAS retry 层（需先调研各 SP 的 stale 信号形态）② cas_login follow_redirect_chain 偶发性 partial cookie 防御（T8 CP-CR-2 第二跑暴露：相邻 CAS 可能拿 3 vs 4 cookies，第二 op 仍 stale 重 retry 才救活）③ 4 个零余量文件优先拆（schedule_handlers / cas/mod.rs / ical/handler.rs / cli/jwc/mod.rs）
 - **详细进度**：见 `tasks/todo.md`
-- **经验总结**：见 `tasks/lessons.md`（V5.F 收尾：CDN 真实约束验证 / H2 throughput-bound vs RTT-bound / fail-soft 掩盖退化 / 优化走 sidetrack 主线保 baseline）
+- **经验总结**：见 `tasks/lessons.md`（2026-05-16 CAS retry 收尾：T3 spec 漏 pre-GET detect / fail-soft 吃 retry 信号 / anyhow+thiserror downcast 链脆弱 / 手卷 vs middleware trade-off / 同构 pattern 先例复用）
 
 ### 项目专属约束
 - **合规第一**：只做读操作；不做抢课 / 代登录 / 批量爬他人

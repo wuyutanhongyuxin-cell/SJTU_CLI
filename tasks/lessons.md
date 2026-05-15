@@ -15,6 +15,63 @@
 
 ---
 
+## 2026-05-16 — CAS retry 层 follow-up（T9 staleness 盲区根治 + T8 真机 CP-CR-1..3）
+
+**触发情境**：T9 真机暴露的"jwc sub_session 客户端 fresh 但 ZF 服务端 timeout"盲区（lessons.md 2026-05-15 段 §4）。临时修复（手删 sub_sessions/jwc.json）不可持续，作 follow-up 系统化封装 retry 层。8-task TDD subagent-driven 实装（spec → plan → T1-T7 implementer + 两阶段 review + final review → T8 真机）。
+
+### 真机 CP-CR-1..3 全过结果
+
+- **CP-CR-1**（删 jwc.json → cache miss path）：19.3s pass。`sub_session 已落盘 name="jwc" cookie_count=4 elapsed_ms=12503` + envelope ok。`total_result=0` 是真实结果（2025 春季学期空），不是错。
+- **CP-CR-2**（sub fresh 但 ZF 12 小时不动早 timeout → 触发 retry）：**第一跑 fail 暴露 T3 spec 盲区**（见下文 1），fix bind.rs 后第二跑 21.5s pass。retry warn 日志触发明确：`sub_session 服务端 stale，清缓存重做 CAS` + 重 cas_login 4 cookies + 二次 op 成功。
+- **CP-CR-3**（手动改 JAAuthCookie=INVALID + 删 jwc.json）：4.0s fail，`子系统 'cas' 不可达：CAS 跳转最终停在 jaccount 域(...)。可能 JAAuthCookie 过期...请先 'sjtu logout && sjtu login'` 友好提示 + exit 1。`SubSystemUnreachable("cas", ...)` variant 正确（非 SubSessionStale，retry 不应试 — 主 session 挂了）。
+
+### 关键设计教训
+
+1. **T3 spec 漏覆盖：ZF stale 真实触发点是 pre-GET `visit_sp_page` 不是 POST `post_form_json`**（T8 暴露）
+   - 原 T3 plan/spec 锁定 `src/apps/jwc/http.rs::post_once` 的 final_url detect，但实测 ZF 服务端 stale 时 **`bind.rs::visit_sp_page` 的 pre-GET 就被 redirect 到 `/xtgl/login_slogin.html`** 拦下，POST 根本走不到。我和 spec reviewer 都漏了这点。
+   - Fix（commit 4d7f52d）：bind.rs:60-66 同域 redirect 路径改抛 SubSessionStale 替换 UpstreamError，retry helper downcast 命中。
+   - **教训**：写 detect 类 spec 前必须 trace 调用链找"哪一跳最早触发"，不是看哪一跳"最有戏剧性"。POST 的 detect 漂亮但 ZF 实际拦在 GET。grep 整链路看 redirect detect 出现的所有位置（`grep -rn "login_slogin"` 一行命令本可在 spec 阶段发现）
+
+2. **fail-soft 吃掉 retry 信号是 silent bug 高发区**（T6 ical/handler.rs fetch_all）
+   - 老路径 `tokio::join!(...)` 后 `unwrap_or_else(|e| { warnings.push(format!("{e}")); default })` 把 SubSessionStale 错装成 warnings → retry helper 永远收不到信号 → T9 表面 envelope `ok=true` 实际 `eventCount=0`
+   - Fix（T6 commit 24f875e）：fetch_all 改返 `Result<...>`，`join!` 后先 `for ... if let Some(SubSessionStale(name)) = err.downcast_ref()` 重 raise variant，stale 错跳过 fail-soft 直接上抛
+   - 教训：任何 fail-soft 路径都必须先 detect "retry-able" 错误优先级，不能盲目吞错。fail-soft 接口的 retry-able 错处理是一类反模式
+
+3. **anyhow + thiserror 混用时 downcast 链脆弱**（T7 invariant 守卫）
+   - 反例：`anyhow!("{:#}", err)` 字符串重 raise 破坏 downcast 链 → retry helper `downcast_ref::<SjtuCliError>()` 拿不到 variant → 不 retry
+   - 正确：`SubSessionStale(&'static str)` 是 `Copy`，pattern 拿出 `*name` 重新构造 variant `SjtuCliError::SubSessionStale(*name).into()` 重 raise
+   - tests/cas_retry_signal.rs 加 3 cross-module sanity tests 当 invariant 守卫（正例 boxing + 正例 context wrapping + 反例 string reraise 必须破坏 downcast）
+
+4. **手卷 vs middleware trade-off 进 retry.rs module doc**
+   - 2026 业界 idiomatic 是 reqwest-middleware + RetryableStrategy，CLAUDE.md 不引新依赖 + 改造面 ×6 子系统 + stateful side-effect（clear_sub_session）+ 1 子系统 scope = 手卷 4 条理由写进 `src/auth/cas/retry.rs` 顶部
+   - 未来扩到 4+ 子系统再 reconsider middleware
+
+5. **同构 pattern 先例复用 = 设计成本几乎 0**
+   - `canvas_video/retry.rs::with_token_refresh`（49 行 production 验证）→ `cas/retry.rs::with_cas_refresh`（51 行）直接同构。改进：抽 `with_refresh_inner(initial_session, op, refresh)` 注入 refresh fn → 单测不依赖文件系统（T4 3 测全用 inject mock session）
+   - 教训：codebase 内同构先例胜过外部业界 best practice；先 grep 自己再 google
+
+### 真机新发现（暂不修，记为 follow-up）
+
+6. **`cas_login` follow_redirect_chain 偶发性 partial cookie**（T8 CP-CR-2 第二跑暴露）
+   - 同样 JAAuthCookie + 同样 LOGIN_URL，相邻几分钟内两次 cas_login 拿到 cookie 数不同：第一次 3 个（缺 i.sjtu.edu.cn JSESSIONID）→ ZF 不认 → 第二次还 stale → retry 失败；4 分钟后再跑 cas_login 拿到 4 个 cookie → ZF 认 → 成功
+   - 根因猜测：ZF 短时间内重做 CAS 给 partial response（rate limit / 异常缓存 / SSO server 状态机），cas_login `follow_redirect_chain` 跳数走完但中间某跳没给 Set-Cookie
+   - Follow-up（不阻塞）：cas_login 加 cookie 数 sanity（"主域 i.sjtu.edu.cn 缺 JSESSIONID 时 warn + 一次重试"）；或 retry helper 在 second op 失败时尝试 third（指数退避 2-3s）
+   - 教训：CAS 链路非幂等。retry helper 假设"refresh 后必拿到 fresh session"在 ZF 上偶发不成立
+
+### 设计决策（追加）
+
+- **SubSessionStale variant 比字符串匹配胜出**：强类型 retry pattern，不依赖错误 message 文案。`code() = "session_expired"` 复用 envelope code 不引新值
+- **retry 闭包接 Session 不接 Client**：cookie jar 必须重 build_http_client，无法复用旧 Client；闭包内 `Client::from_session(session)?` + `Fn` 多次调用 + 双 clone outer/inner 模式
+- **`with_refresh_inner` 抽出 refresh fn 注入**：单测不需要 mock cas_login（pure 文件 IO），core retry logic 独立可测；ical/handler.rs::fetch_all 复用此模式守 stale 信号优先级
+
+### 接入范围与 follow-up
+
+- **本轮接入**：jwc 9 个 call site（cmd_grades / cmd_schedule / cmd_gpa / cmd_gpa_by_semester / cmd_exams / cmd_today / cmd_week / cmd_next / run_calendar）+ ical/handler.rs::fetch_all 修 fail-soft 吃信号 bug
+- **未接入子系统**（spec NG1）：elec / services / jwbmessage 暂不动 — 真机未暴露同类 staleness，且需各自 SP 的 stale detect 信号调研（Discourse OAuth2 / canvas LTI 的 stale 信号不同）
+- **零余量文件 4 个**（final reviewer flag）：`schedule_handlers.rs` 200/200 / `cas/mod.rs` 199 / `ical/handler.rs` 196 / `cli/jwc/mod.rs` 195。下次该文件有任何改动前先拆
+
+---
+
 ## 2026-05-09 — 批量下载先验产物再调 API：临用临取 + 断点续传两条规则（CP-V4）
 
 **触发情境**：CP-V4 设计 `sjtu canvas-video download --lectures all` 18 讲 × 2 机位 = 36 个 mp4。两条已知约束相互打架：① mp4 URL 含 `key=` 时效签名 1-3h 过期 → 不能开局一次性 batch-fetch 36 个 URL；② 36 文件 ~30+ GB 任一中途失败若不能续跑，下次得重抓。需要既"临用临取"又"已下不重下"。

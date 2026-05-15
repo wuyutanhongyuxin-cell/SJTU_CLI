@@ -275,7 +275,16 @@
     - DTSTAMP 跨次刷新让 `hashHex` 不能跨次对比 → SKILL.md L141 已修，明确幂等靠 UID
     - README / SKILL 文档与 handler 实际逻辑不一致 3 处（`--to` envelope 触发条件）→ commit `f6ef916` 修
     - iOS 微信 `.ics` 分享菜单不带"日历"（微信内部分享 ≠ iOS 系统 share sheet），走"存储到文件 → 文件 App 打开"或邮件附件即可
-    - **staleness-fix 覆盖盲区**：jwc sub_session 客户端 captured_at fresh 但 ZF 服务端 session timeout（30 分钟），第一次跑 calendar eventCount=0 + warnings 含 redirect → login_slogin.html。临时修复=精准删 `sub_sessions/jwc.json` 触发主 session CAS 自动跳转刷新；**根治待 follow-up task**：所有 CAS 子系统读端点封装"detect HTML/login redirect → 删 sub_session → 重走 CAS 一次"的 retry 层
+    - **staleness-fix 覆盖盲区**：jwc sub_session 客户端 captured_at fresh 但 ZF 服务端 session timeout（30 分钟），第一次跑 calendar eventCount=0 + warnings 含 redirect → login_slogin.html。临时修复=精准删 `sub_sessions/jwc.json` 触发主 session CAS 自动跳转刷新
+    - [x] **根治 follow-up（2026-05-16 完成）**：CAS retry 层落地，jwc 9 个 call site 透明 auto-refresh
+      - spec：`docs/superpowers/specs/2026-05-15-cas-retry-layer-design.md`
+      - plan：`docs/superpowers/plans/2026-05-15-cas-retry-layer.md`（8 tasks TDD）
+      - 通用 helper：`src/auth/cas/retry.rs::with_cas_refresh`（51 行同构 canvas_video::with_token_refresh + `with_refresh_inner` 注入 refresh fn 单测友好）
+      - 强类型信号：`SjtuCliError::SubSessionStale(&'static str)` variant，downcast 跨 anyhow 链（3 inline tests + 3 cross-module sanity tests `tests/cas_retry_signal.rs`）
+      - jwc 接入：9 个 call site（grades / schedule / gpa / gpa-by-semester / exams / today / week / next / calendar）+ `ical/handler.rs::fetch_all` 改 Result 后 stale-check 重 raise（修 fail-soft 吃信号 bug）
+      - T3 spec 漏洞补丁：commit `4d7f52d` fix `bind.rs::visit_sp_page` 同域 redirect 也抛 SubSessionStale（T8 真机暴露）
+      - T8 真机 CP-CR-1/2/3 全过（详 `tasks/lessons.md` 2026-05-16 段）
+      - **未接入子系统**（spec NG1 明示）：elec / services / jwbmessage 暂不动；各自 SP 的 stale 信号需独立调研后再接入
 
 ### 🟡 S3g — Canvas 课堂视频 (v.sjtu / "课堂视频new") — 2026-05-07 启动
 
