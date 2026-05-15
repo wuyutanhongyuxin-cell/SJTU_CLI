@@ -138,7 +138,7 @@ sjtu jwc calendar --to /tmp/sjtu.ics --json
 
 - `data.eventCount`：最终写入 `.ics` 的 VEVENT 总数
 - `data.byKind`：按 `class` / `exam` / `academic` 三类计数
-- `data.hashHex`：整份 `.ics` 的 FNV-1a 64-bit hash hex，可用于幂等对比
+- `data.hashHex`：整份 `.ics` 的 FNV-1a 64-bit hash hex；**仅供单次调用内 sanity check**（如对比是否被外部修改）。跨次调用 hashHex 会因 `DTSTAMP` 字段刷新而不同，**真正的幂等保证靠 VEVENT 的 UID**（FNV-1a 基于学年/学期/类型/课号确定性生成），客户端按 UID 去重
 - `data.bytes`：`.ics` 字节数
 - `data.warnings[]`：fail-soft 警告；例如课表 / 考试 / 学年校历三路里某一路失败时，这里会保留原因字符串
 
