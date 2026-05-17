@@ -53,6 +53,20 @@ pub enum SjtuCliError {
     /// 触发 clear_sub_session + 重 CAS。`&'static str` 是子系统 name（"jwc" 等）。
     #[error("子系统 `{0}` session 已被服务端失效")]
     SubSessionStale(&'static str),
+
+    /// 一卡通 OAuth2 通用错误（含 "token_expired" / "state_mismatch" / "port_in_use" 等子分类）。
+    /// `with_token_refresh` 用 downcast 识别 `token_expired` 触发自动续期。
+    #[error("一卡通 OAuth2: {0}")]
+    CardOAuth(String),
+
+    /// `~/.sjtu-cli/card_oauth_secret.txt` 缺失或读不到。
+    /// 不写在 CardOAuth(String) 里是因为命令层要给用户明确动作项。
+    #[error("一卡通 client_secret 未配置，请把 client_secret 写入 ~/.sjtu-cli/card_oauth_secret.txt 后重试")]
+    CardOAuthSecretMissing,
+
+    /// authorize → callback 链超时（默认 5 分钟）。用户没在浏览器同意 / 浏览器没弹出 / 网络挂掉。
+    #[error("一卡通授权流程超时，请重试 `sjtu card auth`")]
+    CardOAuthTimeout,
 }
 
 impl SjtuCliError {
@@ -70,6 +84,10 @@ impl SjtuCliError {
             Self::CanvasApi(_) => "canvas_api",
             Self::CanvasTokenInvalid => "session_expired",
             Self::SubSessionStale(_) => "session_expired",
+            Self::CardOAuth(s) if s == "token_expired" => "session_expired",
+            Self::CardOAuth(_) => "card_oauth_failed",
+            Self::CardOAuthSecretMissing => "config_missing",
+            Self::CardOAuthTimeout => "auth_timeout",
         }
     }
 }
@@ -99,5 +117,23 @@ mod tests {
             downcasted,
             Some(SjtuCliError::SubSessionStale("jwc"))
         ));
+    }
+
+    #[test]
+    fn card_oauth_token_expired_maps_to_session_expired() {
+        let e = SjtuCliError::CardOAuth("token_expired".into());
+        assert_eq!(e.code(), "session_expired");
+    }
+
+    #[test]
+    fn card_oauth_other_maps_to_card_oauth_failed() {
+        let e = SjtuCliError::CardOAuth("state_mismatch".into());
+        assert_eq!(e.code(), "card_oauth_failed");
+    }
+
+    #[test]
+    fn card_oauth_secret_missing_maps_to_config_missing() {
+        let e = SjtuCliError::CardOAuthSecretMissing;
+        assert_eq!(e.code(), "config_missing");
     }
 }
