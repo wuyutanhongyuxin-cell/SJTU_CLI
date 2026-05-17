@@ -8,6 +8,7 @@ use serde::Serialize;
 
 mod canvas;
 mod canvas_video;
+mod card;
 mod elec;
 mod jwbmessage;
 pub mod jwc;
@@ -103,6 +104,12 @@ enum Commands {
         #[command(subcommand)]
         sub: elec::ElecSub,
     },
+
+    /// 一卡通（api.sjtu.edu.cn/v1/me/card*）：余额 + 消费记录只读查询（OAuth2 鉴权）。
+    Card {
+        #[command(subcommand)]
+        sub: card::CardSub,
+    },
 }
 
 /// 供 clap 解析的 `--browser` 枚举。只为了 derive `ValueEnum`。
@@ -148,6 +155,7 @@ pub async fn run() -> Result<()> {
         Commands::Jwc { sub } => jwc::dispatch(sub, fmt).await,
         Commands::Services { sub } => services::dispatch(sub, fmt).await,
         Commands::Elec { sub } => elec::dispatch(sub, fmt).await,
+        Commands::Card { sub } => card::dispatch(sub, fmt).await,
     }
 }
 
