@@ -1,7 +1,7 @@
 //! `elec.sjtu.edu.cn` 响应结构体。契约见 §7.3-7.5 + §7.6。
 //!
 //! **金额硬约束**：所有金额 / 度数字段用 `rust_decimal::Decimal` + 本文件下方
-//! `decimal_str_or_num` 自定义 ser/de，兼容服务端混合类型
+//! `crate::util::decimal` 自定义 ser/de，兼容服务端混合类型
 //! （`/api/ws/sydl` 是 string，`/api/rechage/*` 是 number）。
 //! 序列化输出统一为字符串，避免 JSON 的 f64 精度坑。
 
@@ -62,16 +62,16 @@ pub struct MeInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Balance {
     /// 剩余度数 (kWh)，`SYL`。
-    #[serde(rename = "SYL", with = "decimal_str_or_num")]
+    #[serde(rename = "SYL", with = "crate::util::decimal")]
     pub remaining_kwh: Decimal,
     /// 剩余补助度数，`SYBZ`。
-    #[serde(rename = "SYBZ", with = "decimal_str_or_num")]
+    #[serde(rename = "SYBZ", with = "crate::util::decimal")]
     pub subsidy_kwh: Decimal,
     /// 剩余金额（元），`SYLJE`。
-    #[serde(rename = "SYLJE", with = "decimal_str_or_num")]
+    #[serde(rename = "SYLJE", with = "crate::util::decimal")]
     pub balance_yuan: Decimal,
     /// 剩余补助金额（元），`SYBZJE`。
-    #[serde(rename = "SYBZJE", with = "decimal_str_or_num")]
+    #[serde(rename = "SYBZJE", with = "crate::util::decimal")]
     pub subsidy_balance_yuan: Decimal,
 }
 
@@ -81,10 +81,10 @@ pub struct Balance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Monthly {
     /// 上月用电度数。
-    #[serde(with = "decimal_str_or_num")]
+    #[serde(with = "crate::util::decimal")]
     pub last: Decimal,
     /// 当月用电度数。
-    #[serde(with = "decimal_str_or_num")]
+    #[serde(with = "crate::util::decimal")]
     pub now: Decimal,
 }
 
@@ -96,49 +96,6 @@ pub struct DailyUsage {
     /// 日期 ("YYYY-MM-DD")。
     pub date: String,
     /// 当日用电度数。
-    #[serde(with = "decimal_str_or_num")]
+    #[serde(with = "crate::util::decimal")]
     pub used: Decimal,
-}
-
-/// 字符串/数字 → `Decimal` 的统一 ser/de。
-///
-/// **要点**：
-/// - serialize：始终输出字符串（避开 JSON f64 精度坑）
-/// - deserialize：`deserialize_any`，同时吃 `"180.78"` 和 `80.55`；不支持
-///   `deserialize_any` 的格式（bincode 等）会失败 —— 我们只用 JSON。
-pub(super) mod decimal_str_or_num {
-    use std::fmt;
-
-    use rust_decimal::Decimal;
-    use serde::{de, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(d: &Decimal, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&d.to_string())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Decimal, D::Error> {
-        struct V;
-        impl<'de> de::Visitor<'de> for V {
-            type Value = Decimal;
-            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("a decimal expressed as a string or number")
-            }
-            fn visit_str<E: de::Error>(self, s: &str) -> Result<Decimal, E> {
-                s.parse::<Decimal>().map_err(de::Error::custom)
-            }
-            fn visit_string<E: de::Error>(self, s: String) -> Result<Decimal, E> {
-                self.visit_str(&s)
-            }
-            fn visit_f64<E: de::Error>(self, n: f64) -> Result<Decimal, E> {
-                Decimal::from_str_exact(&n.to_string()).map_err(de::Error::custom)
-            }
-            fn visit_u64<E: de::Error>(self, n: u64) -> Result<Decimal, E> {
-                Ok(Decimal::from(n))
-            }
-            fn visit_i64<E: de::Error>(self, n: i64) -> Result<Decimal, E> {
-                Ok(Decimal::from(n))
-            }
-        }
-        d.deserialize_any(V)
-    }
 }

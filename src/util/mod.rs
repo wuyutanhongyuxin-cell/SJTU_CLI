@@ -3,3 +3,4 @@
 //! 新功能请记得控制单文件 ≤ 200 行；超了直接拆文件。
 
 pub mod confirm;
+pub mod decimal;
