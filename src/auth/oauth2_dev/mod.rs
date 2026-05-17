@@ -9,3 +9,7 @@
 //! 终点取 Discourse 的 `_t` cookie；本模块走 code-for-token 拿 Bearer access_token。
 
 pub mod secret;
+pub mod token;
+
+#[cfg(test)]
+mod tests_token;
