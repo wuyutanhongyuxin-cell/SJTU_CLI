@@ -123,10 +123,12 @@ fn is_retriable(msg: &str) -> bool {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        let mut out: String = s.chars().take(max).collect();
+        out.push_str("...");
+        out
     }
 }
 
@@ -158,5 +160,14 @@ mod tests {
     fn detect_no_match_on_4012() {
         let body = r#"{"errno":4012,"error":"other"}"#;
         assert!(detect_token_expired_in_body(body).is_none());
+    }
+
+    #[test]
+    fn truncate_handles_utf8_multibyte_boundary() {
+        // "你好" 是 6 字节（每字 3 byte），按字节切到 max=4 会落在第二字中间
+        let s = "你好世界abc";
+        let truncated = truncate(s, 3);
+        assert_eq!(truncated, "你好世...");
+        assert!(!truncate(s, 100).contains("..."));
     }
 }
