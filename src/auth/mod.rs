@@ -3,6 +3,7 @@
 pub mod browser_extract;
 pub mod cas;
 pub mod oauth2;
+pub mod oauth2_dev;
 pub mod qr_login;
 pub mod qr_render;
 
