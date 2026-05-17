@@ -10,6 +10,7 @@
 
 pub mod authorize;
 pub mod callback;
+pub mod refresh;
 pub mod secret;
 pub mod token;
 
