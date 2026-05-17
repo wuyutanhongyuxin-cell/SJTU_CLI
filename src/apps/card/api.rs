@@ -33,8 +33,8 @@ impl Client {
         })
     }
 
-    /// 暴露 access_token 给 caller（仅供同 crate fetch 路径用）。
-    pub(crate) fn access_token(&self) -> &str {
+    /// 暴露 access_token 给 caller（仅供同模块 fetch 路径用）。
+    pub(super) fn access_token(&self) -> &str {
         &self.session.access_token
     }
 
@@ -71,7 +71,8 @@ impl Client {
     }
 
     /// `GET /v1/me/card/transactions`：拿时间窗口内的消费记录。
-    /// `card_no` 必传（避免多卡用户的不确定性）；`limit` clamp 到 1..=100。
+    /// `card_no` 必传（避免多卡用户不确定性）；`limit` 超出 [1, 100] 时静默 clamp，
+    /// 调用方传 0 期待"不限"语义会被改写为 1，需在 handler 层文档化。
     pub async fn get_transactions(
         &self,
         card_no: &str,
@@ -90,9 +91,17 @@ impl Client {
             .and_utc()
             .timestamp_millis();
         let clamped_limit = limit.clamp(1, 100);
-        let url = format!(
-            "{BASE}/v1/me/card/transactions?cardNo={card_no}&beginDate={begin_ms}&endDate={end_ms}&orderBy=dateTime&start=0&limit={clamped_limit}"
-        );
+        // 用 query_pairs_mut 做 percent-encode，防 card_no 含特殊字符污染 query
+        let mut url = reqwest::Url::parse(&format!("{BASE}/v1/me/card/transactions"))
+            .expect("BASE + path 静态合法");
+        url.query_pairs_mut()
+            .append_pair("cardNo", card_no)
+            .append_pair("beginDate", &begin_ms.to_string())
+            .append_pair("endDate", &end_ms.to_string())
+            .append_pair("orderBy", "dateTime")
+            .append_pair("start", "0")
+            .append_pair("limit", &clamped_limit.to_string());
+        let url = url.to_string();
         let body = fetch_json_raw(
             &self.http,
             &self.throttle,
@@ -154,6 +163,31 @@ mod tests {
         let ms = d.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp_millis();
         // 2026-05-17 23:59:59 UTC = begin_of_day + 86399s
         assert_eq!(ms, 1778976000000 + 23 * 3600 * 1000 + 59 * 60 * 1000 + 59 * 1000);
+    }
+
+    #[test]
+    fn transactions_url_encodes_special_chars() {
+        // 验证 query_pairs_mut 对特殊字符做 percent-encode，不污染 query 分隔符
+        let begin_ms: i64 = 1778976000000;
+        let end_ms: i64 = 1779062399000;
+        let card_no = "AB&CD=1 2"; // 含 & = 空格
+        let mut url = reqwest::Url::parse(&format!("{BASE}/v1/me/card/transactions"))
+            .expect("BASE + path 静态合法");
+        url.query_pairs_mut()
+            .append_pair("cardNo", card_no)
+            .append_pair("beginDate", &begin_ms.to_string())
+            .append_pair("endDate", &end_ms.to_string())
+            .append_pair("orderBy", "dateTime")
+            .append_pair("start", "0")
+            .append_pair("limit", "50");
+        let s = url.to_string();
+        // & = 空格 都应该被 encode（空格可为 + 或 %20）
+        assert!(
+            s.contains("cardNo=AB%26CD%3D1+2") || s.contains("cardNo=AB%26CD%3D1%202"),
+            "unexpected url: {s}"
+        );
+        // 没有暴露 raw "&CD" 当作 query 分隔符
+        assert!(!s.contains("cardNo=AB&CD"), "raw & leaked into url: {s}");
     }
 
     #[test]
