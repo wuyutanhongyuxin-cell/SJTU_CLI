@@ -10,14 +10,11 @@ use tokio::time::sleep;
 
 pub(super) const MIN_INTERVAL: Duration = Duration::from_millis(400);
 
-/// T11 接通 api.rs 后 `#[allow(dead_code)]` 应移除。
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct Throttle {
     last: Mutex<Instant>,
 }
 
-#[allow(dead_code)]
 impl Throttle {
     pub fn new() -> Self {
         let seed = Instant::now()

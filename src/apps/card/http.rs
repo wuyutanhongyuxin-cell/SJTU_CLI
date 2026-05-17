@@ -16,14 +16,10 @@ use reqwest::Client;
 use super::throttle::Throttle;
 use crate::error::SjtuCliError;
 
-/// T11 接通 api.rs 后下列 `#[allow(dead_code)]` 应移除。
-#[allow(dead_code)]
 pub(super) const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-#[allow(dead_code)]
 pub(super) const BASE: &str = "https://api.sjtu.edu.cn";
 
 /// 构造 reqwest Client（无 cookie jar，鉴权走 header）。
-#[allow(dead_code)]
 pub(super) fn build_http_client() -> Result<Client> {
     Client::builder()
         .redirect(Policy::limited(5))
@@ -38,7 +34,6 @@ pub(super) fn build_http_client() -> Result<Client> {
 
 /// JSON GET：节流 + Bearer 头 + 重试 1 次（仅连接层错）+ 错误带 snippet。
 /// 返回原始 body String —— api.sjtu 的 envelope 解析在 api.rs 处理。
-#[allow(dead_code)]
 pub(super) async fn fetch_json_raw(
     http: &Client,
     throttle: &Throttle,
@@ -100,7 +95,6 @@ async fn fetch_once(
 
 /// 检查 200 body 是否带 errno=10002 / "Authentication Failed"（spec §5.1 错误形态）。
 /// 命中 → 返 `SjtuCliError::CardOAuth("token_expired")`。
-#[allow(dead_code)]
 pub(super) fn detect_token_expired_in_body(body: &str) -> Option<anyhow::Error> {
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
         if let Some(errno) = val.get("errno").and_then(|v| v.as_i64()) {

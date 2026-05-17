@@ -14,13 +14,15 @@ use serde::{Deserialize, Serialize};
 /// **bound 显式重写**：默认 derive 会从 `Vec<T>` 推断 `T: Default`，
 /// 但 `CardInfo`/`Transaction` 不需要 Default。把 bound 收紧到只要 `T: Deserialize`。
 ///
-/// `dead_code` 许可：占位骨架；**T11 接通 api.rs 后 `#[allow(dead_code)]` 应移除**。
-#[allow(dead_code)]
+/// `errno`/`error` 字段仅做 serde 反序列化（detect_token_expired_in_body 在 body string 层检测），
+/// 代码路径不直接读，故加 allow。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound(deserialize = "T: serde::Deserialize<'de>"))]
 pub(super) struct Envelope<T> {
+    #[allow(dead_code)]
     #[serde(default)]
     pub errno: Option<i32>,
+    #[allow(dead_code)]
     #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
