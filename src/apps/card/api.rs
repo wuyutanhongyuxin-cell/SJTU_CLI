@@ -160,9 +160,16 @@ mod tests {
     #[test]
     fn date_to_ms_end_of_day() {
         let d = ymd(2026, 5, 17);
-        let ms = d.and_hms_opt(23, 59, 59).unwrap().and_utc().timestamp_millis();
+        let ms = d
+            .and_hms_opt(23, 59, 59)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
         // 2026-05-17 23:59:59 UTC = begin_of_day + 86399s
-        assert_eq!(ms, 1778976000000 + 23 * 3600 * 1000 + 59 * 60 * 1000 + 59 * 1000);
+        assert_eq!(
+            ms,
+            1778976000000 + 23 * 3600 * 1000 + 59 * 60 * 1000 + 59 * 1000
+        );
     }
 
     #[test]

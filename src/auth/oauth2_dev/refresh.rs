@@ -50,7 +50,10 @@ pub fn is_token_expired(e: &anyhow::Error) -> bool {
             return true;
         }
     }
-    if matches!(e.downcast_ref::<SjtuCliError>(), Some(SjtuCliError::SessionExpired)) {
+    if matches!(
+        e.downcast_ref::<SjtuCliError>(),
+        Some(SjtuCliError::SessionExpired)
+    ) {
         return true;
     }
     let s = format!("{e:#}");
@@ -167,7 +170,8 @@ mod tests {
 
     #[test]
     fn is_expired_weak_signal_errno_10002() {
-        let e = anyhow::anyhow!("upstream: status=200 body=errno=10002 error=Authentication Failed");
+        let e =
+            anyhow::anyhow!("upstream: status=200 body=errno=10002 error=Authentication Failed");
         assert!(is_token_expired(&e));
     }
 

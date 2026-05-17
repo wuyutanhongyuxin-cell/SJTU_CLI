@@ -784,3 +784,26 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 - 共享 invariant 散落 + 没文档化 = 长期债。Staleness、redact、Envelope 这类语义有专门 lesson 卡死
 - 修 bug 时不要只 patch 直接触发的入口，**枚举所有同类入口**一次性覆盖
 - `pub(crate)` 函数被新模块使用时要在新模块加单测确认"被正确接入"（不是测函数本身，是测 wiring）
+
+---
+
+## 2026-05-17 — OAuth2 Authorization Code 手卷 vs `oauth2` crate
+
+**触发情境**：T4 一卡通 OAuth2 spec 阶段需选实现路径。
+**错误模式**：（潜在）直接引入 `oauth2` crate 似乎"省事"，但增加依赖面 + crate 默认开启 PKCE 与 SJTU 服务端兼容性未知。
+**正确做法**：手卷 OAuth2 仅多 ~360 行（token.rs 114 + callback.rs 185 + authorize.rs 132），换零新依赖 + 完全可控的 state/PKCE 决策；spec OQ-1 留 PKCE 单独评估口。
+**规则**：先评估"标准 crate 默认行为是否匹配我方 spec"，匹配再考虑引入；不匹配时手卷反而更少坑。
+
+## 2026-05-17 — `headless_chrome::Browser` Drop 杀子进程
+
+**触发情境**：T6 authorize.rs open_in_browser 让 chrome 弹出，等用户在浏览器同意。
+**错误模式**：（潜在）spawn_blocking 闭包退出后 Browser drop → CDP 连接关闭 → chrome 进程被 OS 收 → 用户还没点同意浏览器就消失。
+**正确做法**：`std::mem::forget(browser)` 故意泄露 ownership；trade-off：进程留到 CLI 退出。注释说明"必须跨过用户交互"。
+**规则**：浏览器自动化里 Browser 持有者必须**跨过用户交互窗口**才能 Drop；用 `mem::forget` 是合法手段（不是泄露 bug）。
+
+## 2026-05-17 — 第三方 API 字段拼写陷阱：`dateTimAccount`（少 1 e）
+
+**触发情境**：T9 apps/card/models.rs 解 transactions entity，`orderBy=dateTimeAccount` 时返字段拼写漏 'e'。
+**错误模式**：（潜在）看着像 typo 就自作主张改成 `dateTimeAccount`，反序列化静默失败该字段始终 None。
+**正确做法**：`#[serde(rename = "dateTimAccount")]` 锁住服务端原拼写；Rust 字段名也照抄少 'e'（`date_tim_account_ms`）；module doc + 字段 doc 双处标注 "intentional typo mirror"。
+**规则**：第三方 API 字段名以官方文档为准；宁可丑也别擦伤兼容；docs 显眼标注 typo intent，防止后人"修复"。

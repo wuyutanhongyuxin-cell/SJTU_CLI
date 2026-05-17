@@ -204,6 +204,7 @@ sjtu canvas-video clear-cache --all
 
 ## 办事大厅（services）
 
+
 ```bash
 sjtu services pending --yaml
 ```
@@ -219,3 +220,69 @@ sjtu elec balance
 sjtu elec usage
 sjtu elec history --days 7
 ```
+
+---
+
+## 一卡通命令（card）
+
+> 后端：`api.sjtu.edu.cn/v1/me/card*`，OAuth2 Authorization Code，token 落 `~/.sjtu-cli/sub_sessions/card_oauth.json`。
+> 与 jwc/elec/services（cookie + CAS）独立鉴权链。
+
+### sjtu card auth
+
+首次授权：弹浏览器同意 → 拿 access_token + refresh_token 落盘。
+
+**入参**：
+- `--client-id <ID>`（必填，从 `developer.sjtu.edu.cn` 申请）
+
+**前置**：`~/.sjtu-cli/card_oauth_secret.txt`（含 client_secret，chmod 600）
+
+**输出关键字段**：`data.ok` / `data.card_no_redacted`（如 `0012***`）/ `data.expires_in_secs` / `data.scope`
+
+### sjtu card balance
+
+当前卡余额查询。
+
+**入参**：
+- `--with-identity`（可选，默认 false）：出学号 / 姓名 / 单位 / 银行卡（前 4 + **** + 后 4）
+
+**输出关键字段**：
+- `data.card_no_redacted`：卡号脱敏（前 4 + `***`）
+- `data.balance`：可用余额（Decimal 字符串如 `"284.25"`）
+- `data.trans_balance`：可消费余额（同上）
+- `data.lost` / `data.frozen`：bool
+- `data.expire_date`：到期日（如 `"2026-08-31"`，可空）
+- `data.face_type`：身份类型（如 `"学生"`）
+- `data.user` / `data.bank_no_redacted` / `data.face_sub_type`：仅 `--with-identity` 时输出，否则字段 skip
+- `data.from_cache`：始终 false（一卡通无 cache 路径）
+- `data.elapsed_ms`：耗时
+
+**注意**：`cardId`（物理卡 ID）**永远不出**，即便 `--with-identity`（防卡号克隆攻击面，spec §8 红线）。
+
+### sjtu card history
+
+时间窗口内消费记录。
+
+**入参**：
+- `--days N`：天数，默认 30，**范围 1..=365**（超出 exit 1，error.code=`invalid_input`）
+- `--limit M`：单次最多返回多少条，默认 50；服务端硬限 100，CLI 自动 clamp
+
+**前置**：先跑过 `sjtu card balance` 一次（用于把主卡号写入 session），否则 history 报错引导先 balance
+
+**输出关键字段**：
+- `data.card_no_redacted` / `data.begin_date_local` / `data.end_date_local`
+- `data.returned`：本次返回条数
+- `data.total`：服务端 total（可能 > returned）
+- `data.transactions[]`：每条含 `consumed_at` (ISO 8601 +08:00) / `system` / `merchant_no` / `merchant` / `description` / `amount`（Decimal 字符串，消费为负） / `balance_after`
+- `data.total_amount`：sum(amount)（Decimal 链式累加）
+- `data.from_cache` / `data.elapsed_ms`
+
+### Token refresh 透明行为
+
+- access_token TTL ≈ 30 分钟；CLI 启动时预检 stale，主动 refresh
+- API 调用过程中 errno=10002 / "Authentication Failed" / 401 → 触发 with_token_refresh 自动续期 + 重试 1 次
+- 用户无需重新跑 `card auth`，除非 refresh_token 也失效（罕见）
+
+### 永久不实装的写端点（CLI 红线）
+
+`PUT /v1/me/card` 开卡 / `POST /v1/me/card` 挂失/解挂/改密码 / 充值 / 改照片 / 拾卡 — 一律不实装。

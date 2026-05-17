@@ -103,8 +103,7 @@ pub async fn refresh_and_save(http: &reqwest::Client) -> Result<CardOAuthSession
     if !resp.refresh_token.is_empty() {
         sess.refresh_token = resp.refresh_token;
     }
-    sess.expires_at = now
-        + chrono::Duration::seconds(resp.expires_in as i64)
+    sess.expires_at = now + chrono::Duration::seconds(resp.expires_in as i64)
         - chrono::Duration::seconds(REFRESH_MARGIN_SECS);
     sess.captured_at = now;
     save_session(&sess)?;

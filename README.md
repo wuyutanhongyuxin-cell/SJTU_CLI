@@ -26,6 +26,7 @@
 | `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
 | `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next\|calendar` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA + 排名双轨 (`gpapmParsed` / `xjfpmParsed`) / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天） / RFC 5545 iCal 导出（课表 + 考试 + 校历，FNV-1a UID 幂等）；`--grid` comfy-table 表格输出 |
 | `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（默认 4 年 × 3 学期 N309131 循环，600ms throttle，fail-soft：失败学期落 `failed[]`，exit 始终 0；真机 12 学期 ~56s） |
+| `sjtu card auth\|balance\|history` | 一卡通（api.sjtu.edu.cn）—— OAuth2 Authorization Code，余额 + 消费记录只读；金额 `rust_decimal::Decimal` 硬约束；身份字段默认抹掉，`--with-identity` 才出 |
 
 路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 
@@ -101,6 +102,23 @@ sjtu jwc gpa-by-semester --xnm-from 2022 --xnm-to 2024 --yaml
 ```
 
 > **注意**：`--rank nj`（纯年级）在部分 SJTU 实例上 server 返 HTML 错误页 → 单学期会 exit 1，多学期版会装进 `failed[]` 不崩。Agent 默认走 `--rank njzy`。N309131 server-side 统计每次 4-5s（不是网络 RTT），12 学期循环真机 ~56s。
+
+一卡通余额 + 消费记录（OAuth2 Authorization Code，鉴权后通过 api.sjtu.edu.cn 拿数据）：
+
+```bash
+# 首次：在 https://developer.sjtu.edu.cn 申请 client_id（scope: card_info + card_transactions）
+# 把 client_secret 落本机 ~/.sjtu-cli/card_oauth_secret.txt（Unix chmod 600）
+
+sjtu card auth --client-id <YOUR_CLIENT_ID>   # 弹浏览器同意授权，token 落 sub_sessions/card_oauth.json
+sjtu card balance                              # 当前卡余额（默认抹身份）
+sjtu card balance --with-identity              # 含学号 / 姓名 / 单位 / 银行卡尾号
+sjtu card history --days 7 --limit 50          # 7 天消费记录
+sjtu card history --days 30 --yaml             # 30 天，YAML 输出
+```
+
+- token 自动续期：access_token TTL 30 分钟，refresh_token 透明 refresh，用户无感
+- 金额一律 `Decimal` 序列化为字符串（避 JSON f64 精度坑）；total_amount 链式累加精确
+- 红线：充值 / 挂失 / 解挂 / 改密码 / 改照片 / 拾卡 等写端点 CLI **永久不实装**
 
 ## 技术栈
 

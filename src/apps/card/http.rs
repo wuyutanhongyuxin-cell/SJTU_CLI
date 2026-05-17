@@ -61,12 +61,7 @@ pub(super) async fn fetch_json_raw(
     Err(last_err.expect("至少一次尝试的错误"))
 }
 
-async fn fetch_once(
-    http: &Client,
-    url: &str,
-    access_token: &str,
-    label: &str,
-) -> Result<String> {
+async fn fetch_once(http: &Client, url: &str, access_token: &str, label: &str) -> Result<String> {
     let resp = http
         .get(url)
         .header(ACCEPT, "application/json")

@@ -353,13 +353,52 @@
 
 ---
 
+## ✅ S3 Phase 2 — 一卡通 OAuth2（已完成代码 + 单测；真机 CP 阻塞 client_id 2026-05-17）
+
+> **plan**：`docs/superpowers/plans/2026-05-17-t4-ecard-oauth2.md`（T0-T17，17 任务，Subagent-Driven）
+> **背景研究**：`docs/superpowers/research/2026-05-17-t4-update.md`（路径 C：OAuth2 + api.sjtu.edu.cn）
+
+### 代码 + 单测部分（T0-T13）— 全部完成 2026-05-17
+
+- [x] **T0** Cargo.toml +tokio net feature（commit 3f8c8bb）
+- [x] **T1** util/decimal.rs 提取 + elec 切 import（commit 49153cf；5 visitor tests + 7 elec import 切换）
+- [x] **T2** error.rs +CardOAuth/SecretMissing/Timeout 3 variants（commit a3a4946；3 tests）
+- [x] **T3** oauth2_dev/secret.rs + chmod 600 守护（commit ed47bff；2 tests）
+- [x] **T4** oauth2_dev/token.rs exchange_code + refresh（commit c5a9219；4 mockito tests）
+- [x] **T5** oauth2_dev/callback.rs 本地 TCP listener + percent-decode（commit c11b845；6 tests）
+- [x] **T6** oauth2_dev/authorize.rs URL 构造 + state + Browser open（commit fb35159；3 tests）
+- [x] **T7** oauth2_dev/refresh.rs `with_token_refresh<F,Fut,R,RFut,T>`（commit 5a69697；7 tests）
+- [x] **T8** oauth2_dev/mod.rs 顶层 CardOAuthSession + load/save/is_token_stale/refresh_and_save（commit 0675e01；5 tests）
+- [x] **T9** apps/card/models.rs CardInfo + Transaction + dateTimAccount 拼写陷阱守护（commit 64edb48；6 tests，followup 9a833e9 dead_code 注释）
+- [x] **T10** apps/card/{throttle,http}.rs throttle 400ms + Bearer + token_expired detect（commit ee87e07；4 tests，followup 668c1b5 truncate UTF-8）
+- [x] **T11** apps/card/api.rs Client + get_balance + get_transactions（commit 3aed6ce；3 tests，followup e9312b0 card_no URL encode 防注入）
+- [x] **T12** commands/card/{mod,data,handlers,refresh_helper}.rs（commit 456efc6；4 tests，followup 539b2e6 redact UTF-8 + 无效 ts warn）
+- [x] **T13** cli/card.rs + cli/mod.rs Card variant 派发（commit 4d533f5；0 new tests，--help smoke 通过）
+
+**累计**：13 主线 commits + 4 followup commits = 17 commits；新增 17 文件 + 修改 4 文件；~42 单测全过；clippy 0 warnings；fmt 通过；每文件 < 200 行（api.rs 200 恰好达限，最大近界文件）。
+
+### 真机 CP 部分（T14-T16）— PENDING
+
+- [ ] **T14** CP-T4-AUTH 首次授权 e2e — **阻塞**：等用户在 developer.sjtu.edu.cn 申请 client_id（scope: card_info + card_transactions，3 工作日审批）+ 把 client_secret 落 `~/.sjtu-cli/card_oauth_secret.txt`
+- [ ] **T15** CP-T4-BAL / BAL-ID / HIST / HIST-EMPTY / LIMIT 5 项 — 依赖 T14
+- [ ] **T16** CP-T4-REFRESH token 续期 — 依赖 T14（需挂 30+ 分钟让 token 过期）
+
+### 收尾（T17）— 本提交
+
+- [x] **T17** tasks/todo.md + tasks/lessons.md + README + SKILL + CLAUDE.md "当前阶段" 更新
+
+### 已知 follow-up（不阻塞）
+
+- ① **OQ-1 PKCE 服务端强制性**：spec 未实装 PKCE；T14 真机首跑若 server 报 PKCE required → 加一个 T7.5 task 加 code_challenge。否则保留 raw Authorization Code 路径
+- ② **OQ-3 refresh_token 一次性策略**：jaccount 文档未明示 refresh_token 是否单次；T16 跑完 + 1-2 周连续使用观察是否 refresh 后 refresh_token 字符串改变
+- ③ **elec/services/jwbmessage 接入 CAS retry 层**：S3e/S3a-c 当前没用 with_cas_refresh；待 T4 完成后系统化补
+- ④ **elec/http.rs::truncate UTF-8 byte-slice 同款 bug**：card 端已修（commit 668c1b5），elec body 全 ASCII 未踩；当合并到 util 时统一修
+
+---
+
 ## ⚪ S4 — 一卡通消费明细（从原 S4 降级为 S3e 拓展或 Phase 2）
 
-> 从 2026-04-23 起推迟：基础余额查询归 S3e，消费明细留到 Phase 2。
-
-- [ ] `src/apps/card.rs` 消费明细爬取
-- [ ] `src/commands/card.rs`：`card history`
-- [ ] `tests/card.rs`
+> 从 2026-04-23 起推迟：基础余额查询归 S3e，消费明细留到 Phase 2。已由上方 S3 Phase 2 OAuth2 实现取代。
 
 ---
 
@@ -445,4 +484,5 @@
 | 2026-04-30 | S3e CP-E4 ✅ | 用户在校园网 Windows 11 cmd 跑通 `sjtu elec balance` / `usage` / `history --days 7` 三件套，逐项契约校验全过：`balance` 房间 D10-406 / `isbind:true` / 4 个金额字段全部字符串形式（`'284.25'` 不是 `284.25`，避开 f64 精度坑）；`usage` 当月 2026-04 / `last:80.55` / `now:62.44`（`total:0` 误标已忽略，CLI 只读 `entities[0]`）；`history` 区间 `2026-04-24`~`2026-04-30` returned 6（服务端漏当天 04-30，与 §7.6 文档预期一致），`total_kwh:'18.88'` Decimal 累加精确（3.37+2.16+3.78+2.40+1.94+5.23 = 18.88 手算复核 OK）；身份字段（name/work_no/account/dept）默认全部抹掉，输出只保留 `room` 位置标识；**关键复盘 4**：用户最初跑 `sjtu elec balance` 报 `'sjtu' 不是内部或外部命令` —— release binary 在 `target/release/sjtu.exe` 但未装到 PATH，给两条解法：相对路径直跑 / `cargo install --path . --locked`；S3e MVP 收尾 | 一卡通余额 / 消费明细 / 校车信息（如有）仍是 phase-2；`isbind:false` case 未真机验；`--days > 30` 范围未验 |
 | 2026-05-12 | V5.F 撤回 audio-only 整路 ✅ | V5.B/D/E-B+ 三轮 audio-only 优化全失败（mp4 chunk-Range / sample-Range / 4-Client H2 池 + P85 自适应），最后一轮反向退化 21.6 min/讲（vs V5.A baseline 18 min/9 讲）；spec/plan/inline 执行三步落 V5.F 决策：删 `apps/canvas_video/{audio_dl,m4a_mux,mp4_box}/` 3 目录共 17 文件 1500 行 + 缩 `download_shared.rs` 128→90 行 + `data.rs` 清 V5.D 注释 + `mod.rs` 删 3 个 pub mod，2 commits 共 -2092 / +90；91 unit tests 全绿 + clippy `-D warnings` 零警告 + fmt 零 diff；真机：B.1 ffmpeg stdin pipe 5 min hexdump 验证否决（SJTU CDN mp4 是 moov-end 不可 stdin seek）；L10 单讲 smoke 1.74 min（target ≤ 2.5 min，all-pass）；9 讲 batch 907984 ms = 15.13 min（target ≤ 25 min 余量 40%）/ 9/9 mp4-full / 0 failed / 7.86 GB 总下载 / 全部 mp4_kept=false + audio_path 落盘 / 各讲 1.49-2.25 min 全过单讲阈值；lessons 加 5 条规则（CDN 真实约束验证 / H2 throughput-bound vs RTT-bound / 实验路径关 fail-soft / 优化走 sidetrack / 撤回按绝对值）；CLAUDE.md 当前阶段同步 V5.F | sub_sessions/canvas_video_bootstrap session ttl 仍 1800s 不变（V5.F 不动 LTI 链路）；后续 V6+ 若再做 audio-only 需走并行 worktree 不污染主线；Windows ACL 仍 TODO（S0 留白） |
 | 2026-05-13 | OAuth2 path staleness fix ✅（补 5878fba 同源债） | `sjtu shuiyuan new-topic` 真机 403 → 严格核实 bug：`oauth2/mod.rs:46` cache hit 只判 `!sess.is_expired()`，没 `captured_at >= main.captured_at`，5878fba 修 CAS 时漏覆盖 OAuth2 path；shuiyuan.json captured_at=`2026-04-23` 比主 session `2026-05-12` 早 19 天但软 TTL=30d 未到 → 复用 stale `_t` 死循环；patch：`oauth2/mod.rs` 提前 load main session + 把 cache hit 判定换成 `cache_is_fresh(&sub, &main)` 复用 `cas::cache_is_fresh`；加 2 个 wiring unit test（stale 拒命中 / 同期或新接受）；端到端真机验证：retry new-topic 触发 OAuth2 重做，shuiyuan.json captured_at 刷新为 `2026-05-13T02:41:05`、Discourse 返 cooked HTML（topic 发出）；lessons 加 1 条 invariant（共享 staleness 函数必须覆盖所有 auth 入口）+ 4 条 reviewer 规则；fmt/clippy/test/release build 全绿 | T2.x"sub_session auto-invalidate on login_slogin.html" jwc-CAS 侧仍 TODO（CAS 入口 final_url 检测 + 自动 invalidate + 重试 1 次，与 OAuth2 path 不同语义层） |
+| 2026-05-17 | T4 一卡通 公网调研收口 + spec 起稿 | 公网 curl 真机：ecard 302→restrict（公网不可达，**路径 A 永久放弃**）/ card.sjtu→weixin H5 入口非 REST / **api.sjtu.edu.cn/v1/me/card 公网 200** + envelope `{errno,error,total,entities}` 与 elec 同款 / developer.sjtu.edu.cn/api/card.html 完整契约可读；3 处修正 5-15 预研偏差：①余额端点是 `/v1/me/card` 不是 `/v1/me/card/user` ②`cardBalance/transBalance/amount` 全部 **`double`** 不是 string，必走 `decimal_str_or_num` 转 Decimal ③envelope 复用 elec generic `Envelope<T>` 无需新；OAuth2 完整文档抓全：`jaccount.sjtu.edu.cn/oauth2/{authorize,token,logout}`，token 1800s expires_in + refresh_token 续期，A 模式支持 `card_info`+`card_transactions` 两 scope；写两份文档：①`research/2026-05-17-t4-update.md`（180+ 行公网调研补丁 + 申请引导 + Decimal/PII/红线决策）②`specs/2026-05-17-t4-ecard-oauth2-design.md`（14 节 ~25KB，含 17 文件 ~1260 行 行数预算 + 12 mockito 测试矩阵 + 7 真机 CP + 6 R/4 OQ + Decimal helper 提取到 util/decimal 单一来源 + with_token_refresh 同构 canvas_video）；用户决策落定：新模块 `src/auth/oauth2_dev/` + redirect_uri `http://127.0.0.1:45123/callback` 固定端口；用户去 developer.sjtu.edu.cn 申请 client_id（3 工作日），同期我写 plan + TDD 代码骨架 | clientId 申请未提交；plan 文档未起；headless_chrome vs 系统默认浏览器二选一未定（spec 首版选 headless_chrome 复用主 session）；OQ-1 PKCE 服务端是否强制需审批后首跑确认；OQ-2 redirect_uri 平台是否允许 127.0.0.1 通配未定（spec 选固定端口 45123 防御此风险） |
 | 2026-04-25 | S3a/S3b 真机 CP 验收 | 8/8 真机 checkpoint 全过：CP-1 login-probe → `authenticated:true` `from_cache:true` `elapsed_ms=6` `current_user.id=72509`；CP-2 latest --limit 3 → `returned=3`；CP-3 topic 468808 --post-limit 5 → `posts[0].post_number=1` `username=Narrenschiff`；CP-4 inbox --unread-only → `returned=6`；CP-5 search "jaccount" --in post → `posts_count=50`；CP-6 二次 login-probe → `elapsed_ms=6 < 100`；CP-M1 messages --filter inbox → `username=<水源昵称>` `returned=2`；CP-M2 message 404691 三 render 模式 (plain/markdown/raw) 语义全对（plain 剥 md / markdown==raw 保留）；**根因诊断**：本次卡 30+ 分钟全因 release binary 是 2026-04-23 16:55 编的旧版本（缺 `apps/shuiyuan/http.rs` 的 `pool_idle_timeout(0)` + `http1_only` 等修复）→ `cargo build --release` 重编后立刻通；本机网络须设 `HTTPS_PROXY=http://127.0.0.1:10808`（Clash mixed port），直连 DNS 解析水源超时；新增 `examples/proxy_diag.rs` 三组 builder 对照实验 `Default / Proxy::all / no_proxy + sjtu builder` 已删 | 写端点 CP-W4 (new-topic) 真机未触发；S3b pm-send 写端点未实装；S3b 交我办消息中心 SP 调研未做（待用户配合 chrome-devtools MCP）；S3d 办事大厅 / S3e 生活服务尚未启动 |

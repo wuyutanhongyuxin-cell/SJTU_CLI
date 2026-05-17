@@ -33,9 +33,7 @@ Connection: close\r\n\
 /// **注意**：返回前会先给浏览器写 200 OK + HTML，保证用户看到"授权成功"。
 pub async fn wait_for_callback() -> Result<(String, String)> {
     let listener = TcpListener::bind(BIND_ADDR).await.map_err(|e| {
-        SjtuCliError::CardOAuth(format!(
-            "无法 bind {BIND_ADDR}（端口被占用？）: {e}"
-        ))
+        SjtuCliError::CardOAuth(format!("无法 bind {BIND_ADDR}（端口被占用？）: {e}"))
     })?;
     let (mut sock, _addr) = timeout(CALLBACK_TIMEOUT, listener.accept())
         .await
@@ -57,16 +55,15 @@ pub async fn wait_for_callback() -> Result<(String, String)> {
 
 /// 从 raw HTTP request 第一行 `GET /callback?code=X&state=Y HTTP/1.1` 解析 code/state。
 pub(crate) fn parse_callback_request(req: &str) -> Result<(String, String)> {
-    let first_line = req.lines().next().ok_or_else(|| {
-        SjtuCliError::CardOAuth("callback 请求为空".to_string())
-    })?;
+    let first_line = req
+        .lines()
+        .next()
+        .ok_or_else(|| SjtuCliError::CardOAuth("callback 请求为空".to_string()))?;
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("");
     if method != "GET" {
-        return Err(
-            SjtuCliError::CardOAuth(format!("期望 GET，实际 {method}")).into(),
-        );
+        return Err(SjtuCliError::CardOAuth(format!("期望 GET，实际 {method}")).into());
     }
     // target = "/callback?code=X&state=Y"
     let query = target
@@ -131,10 +128,9 @@ fn hex_val(b: u8) -> Option<u8> {
 /// 校验 state 一致（CSRF 防御）。不匹配返 CardOAuth("state_mismatch")。
 pub fn check_state(got: &str, expected: &str) -> Result<()> {
     if got != expected {
-        return Err(SjtuCliError::CardOAuth(format!(
-            "state_mismatch: 期望 {expected} 实际 {got}"
-        ))
-        .into());
+        return Err(
+            SjtuCliError::CardOAuth(format!("state_mismatch: 期望 {expected} 实际 {got}")).into(),
+        );
     }
     Ok(())
 }

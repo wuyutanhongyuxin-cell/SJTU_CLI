@@ -25,8 +25,8 @@ pub fn load_secret() -> Result<String> {
     }
     #[cfg(unix)]
     check_unix_mode_600(&path)?;
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("读取 {} 失败", path.display()))?;
+    let raw =
+        std::fs::read_to_string(&path).with_context(|| format!("读取 {} 失败", path.display()))?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(SjtuCliError::CardOAuthSecretMissing.into());
