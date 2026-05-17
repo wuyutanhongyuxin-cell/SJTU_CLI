@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// **bound 显式重写**：默认 derive 会从 `Vec<T>` 推断 `T: Default`，
 /// 但 `CardInfo`/`Transaction` 不需要 Default。把 bound 收紧到只要 `T: Deserialize`。
 ///
-/// `dead_code` 许可：T10/T11 的 api.rs 实装后会被 construct；现在是占位骨架。
+/// `dead_code` 许可：占位骨架；**T11 接通 api.rs 后 `#[allow(dead_code)]` 应移除**。
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound(deserialize = "T: serde::Deserialize<'de>"))]
