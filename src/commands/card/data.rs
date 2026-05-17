@@ -68,21 +68,28 @@ pub struct TransactionItem {
     pub balance_after: Decimal,
 }
 
-/// 把 cardNo 脱敏成 "前 4 + ***"。短于 5 字符时整体 ***。
+/// 把 cardNo 脱敏成 "前 4 字符 + ***"。短于 5 个字符时整体 ***。
+/// 使用 char-aware 切片，避免多字节 UTF-8 panic。
 pub fn redact_card_no(s: &str) -> String {
-    if s.len() < 5 {
+    let n = s.chars().count();
+    if n < 5 {
         "***".to_string()
     } else {
-        format!("{}***", &s[..4])
+        let prefix: String = s.chars().take(4).collect();
+        format!("{prefix}***")
     }
 }
 
-/// bankNo 脱敏：前 4 + **** + 后 4。短于 9 字符时整体 ****。
+/// bankNo 脱敏：前 4 字符 + **** + 后 4 字符。短于 9 个字符时整体 ****。
+/// 使用 char-aware 切片，避免多字节 UTF-8 panic。
 pub fn redact_bank_no(s: &str) -> String {
-    if s.len() < 9 {
+    let n = s.chars().count();
+    if n < 9 {
         "****".to_string()
     } else {
-        format!("{}****{}", &s[..4], &s[s.len() - 4..])
+        let prefix: String = s.chars().take(4).collect();
+        let suffix: String = s.chars().skip(n - 4).collect();
+        format!("{prefix}****{suffix}")
     }
 }
 
@@ -109,5 +116,13 @@ mod tests {
     #[test]
     fn redact_bank_no_short() {
         assert_eq!(redact_bank_no("12345678"), "****");
+    }
+
+    #[test]
+    fn redact_handles_utf8_multibyte() {
+        // 字节长度 >= 5 但前 4 字节落在多字节 char 中间会 panic（旧实现）
+        // 用中文字符验证 char-aware 实现正确性
+        assert_eq!(redact_card_no("你好世界abc"), "你好世界***");
+        assert_eq!(redact_bank_no("你好世界中abcde"), "你好世界****bcde");
     }
 }

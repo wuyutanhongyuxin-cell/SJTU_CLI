@@ -157,7 +157,14 @@ pub async fn cmd_history(days: u32, limit: u32, fmt: Option<OutputFormat>) -> Re
             consumed_at: beijing
                 .timestamp_millis_opt(t.date_time_ms)
                 .single()
-                .unwrap_or_else(|| beijing.timestamp_millis_opt(0).unwrap()),
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        "card_history: 无效 date_time_ms={} fallback to epoch（merchant={:?}）",
+                        t.date_time_ms,
+                        t.merchant
+                    );
+                    beijing.timestamp_millis_opt(0).unwrap()
+                }),
             system: t.system,
             merchant_no: t.merchant_no,
             merchant: t.merchant,
