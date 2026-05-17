@@ -8,6 +8,7 @@
 //! 与现 `src/auth/oauth2/` 完全不同：那个是 shuiyuan 用的 302-chain 跟链，
 //! 终点取 Discourse 的 `_t` cookie；本模块走 code-for-token 拿 Bearer access_token。
 
+pub mod authorize;
 pub mod callback;
 pub mod secret;
 pub mod token;
