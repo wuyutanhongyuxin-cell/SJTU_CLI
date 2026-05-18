@@ -51,6 +51,9 @@ rust_decimal = { version = "1", features = ["serde"] }
 # 锁 7.1.x：7.2 MSRV 1.85 超项目 rust-version 1.75
 comfy-table = "~7.1"
 
+# --- T4 weixin path HTML 解析 ---
+scraper = "0.21"
+
 [dev-dependencies]
 mockito = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "fs", "io-util", "net"] }
