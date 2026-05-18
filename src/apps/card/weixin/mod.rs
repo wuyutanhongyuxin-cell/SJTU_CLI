@@ -6,8 +6,8 @@
 //! let txs  = fetch_history(&main_session, None, None).await?;  // Vec<Transaction>
 //! ```
 //!
-//! 鉴权与 stale-detect：复用 `crate::auth::cas::retry::with_cas_refresh`（T8）。stale variant
-//! `SubSessionStale("card_weixin")` 由 redirect 链落在 jaccount jalogin 时由本模块手动抛。
+//! 鉴权：直接借主 jaccount session（`*.sjtu.edu.cn` cookie 自动跨域共享 OAuth2 dance）。
+//! redirect 链落在 jaccount jalogin/oauth2/authorize → `SessionExpired`，提示用户重 `sjtu login`。
 
 pub mod balance_parse;
 pub mod client;
@@ -21,7 +21,6 @@ use self::balance_parse::parse_balance;
 use self::client::build_weixin_client;
 use self::history_parse::{parse_history, parse_history_summary, HistorySummary};
 use crate::apps::card::models::{CardInfo, Transaction};
-use crate::auth::cas::retry::with_cas_refresh;
 use crate::cookies::Session;
 use crate::error::SjtuCliError;
 
@@ -38,64 +37,40 @@ pub async fn fetch_balance(main_session: &Session) -> Result<CardInfo> {
     parse_balance(&body)
 }
 
-/// 抓消费记录。`start`/`end` 是日期窗口（默认服务端最近 30 天，OQ-WX-1 plan 阶段未确定参数名）。
+/// 抓消费记录。L1 修复：主 session 直透传 + weixin_follow 手卷。
+///
+/// **OQ-WX-1 真机回答**（D12-T1 dump）：服务端忽略 URL 上的 `startdate`/`enddate`
+/// 参数，永远返回最近 30 天数据；真实参数是 form POST `bDate`/`eDate`。
+/// read-only 红线禁 POST，故本函数始终拿 30 天回来；上层 handler 按 `--days`
+/// 做本地 truncate。
 pub async fn fetch_history(
-    _main_session: &Session,
+    main_session: &Session,
     start: Option<NaiveDate>,
     end: Option<NaiveDate>,
 ) -> Result<Vec<Transaction>> {
     let url = build_history_url(start, end);
-    let url_clone = url.clone();
-    with_cas_refresh("card_weixin", &url_clone, |session| {
-        let url = url.clone();
-        async move {
-            let client = build_weixin_client(&session)?;
-            let resp = client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| SjtuCliError::NetworkError(format!("GET history: {e}")))?;
-            let status = resp.status();
-            let final_url = resp.url().to_string();
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| SjtuCliError::NetworkError(format!("读 history body: {e}")))?;
-            detect_stale_or_unexpected(&final_url, &body, status.as_u16())?;
-            parse_history(&body)
-        }
-    })
-    .await
+    let client = build_weixin_client(main_session)?;
+    let (final_url, body) = weixin_follow(&client, &url).await?;
+    detect_stale_or_unexpected(&final_url, &body, 200)?;
+    parse_history(&body)
 }
 
-/// 同步抓 footer 汇总（CLI 暂不出，留作 history 命令未来扩展）。
+/// 同步抓 footer 汇总（CLI 暂不出，留作 history 命令未来扩展）。L1 修复：主 session 直透传。
 pub async fn fetch_history_summary(
-    _main_session: &Session,
+    main_session: &Session,
     start: Option<NaiveDate>,
     end: Option<NaiveDate>,
 ) -> Result<HistorySummary> {
     let url = build_history_url(start, end);
-    let url_clone = url.clone();
-    with_cas_refresh("card_weixin", &url_clone, |session| {
-        let url = url.clone();
-        async move {
-            let client = build_weixin_client(&session)?;
-            let resp = client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| SjtuCliError::NetworkError(format!("GET history summary: {e}")))?;
-            let body = resp
-                .text()
-                .await
-                .map_err(|e| SjtuCliError::NetworkError(format!("读 body: {e}")))?;
-            Ok(parse_history_summary(&body))
-        }
-    })
-    .await
+    let client = build_weixin_client(main_session)?;
+    let (_final_url, body) = weixin_follow(&client, &url).await?;
+    Ok(parse_history_summary(&body))
 }
 
-/// OQ-WX-1 plan 阶段假定 query 参数名 `startdate` / `enddate`（CP 阶段实测后调整）。
+/// 历史 URL 构造。**OQ-WX-1 真机回答**（D12-T1）：服务端忽略 URL query
+/// 上的 `startdate`/`enddate`，永远返最近 30 天；真实参数是 form POST 的
+/// `bDate`/`eDate`。read-only 红线禁 POST，故 query 参数无实际效果，
+/// 留着仅为请求字符串明示意图；过滤靠上层 handler 做。
 fn build_history_url(start: Option<NaiveDate>, end: Option<NaiveDate>) -> String {
     match (start, end) {
         (Some(s), Some(e)) => format!("{HISTORY_URL}?startdate={s}&enddate={e}"),
