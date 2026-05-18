@@ -1,23 +1,16 @@
-//! `sjtu card <sub>` 主流程：connect OAuth2 → API 调用（with_token_refresh 包裹）→ 渲染 Envelope。
-//!
-//! `cmd_auth`：手动触发 authorize → callback → token exchange → 落盘。
-//! `cmd_balance`：默认抹身份；`--with-identity` 出 user / bank_no。
-//! `cmd_history`：时间窗口 N 天（默认 30，最大 365）；limit 默认 50 最大 100。
-
-use std::time::Instant;
+//! `sjtu card <sub>` pub 入口：cmd_auth / cmd_balance / cmd_history。
+//! 具体 path 实现（OAuth2 / weixin）在 `handlers_dispatch.rs`。
 
 use anyhow::Result;
-use chrono::{Duration, FixedOffset, TimeZone};
-use rust_decimal::Decimal;
 
-use super::data::{
-    redact_bank_no, redact_card_no, BalanceData, HistoryData, TransactionItem, UserIdentity,
+use super::data::redact_card_no;
+use super::handlers_dispatch::{
+    cmd_balance_oauth2, cmd_balance_weixin, cmd_history_oauth2, cmd_history_weixin,
 };
-use super::refresh_helper::ensure_fresh_and_call;
-use crate::apps::card::Client;
+use crate::apps::card::via::{select_via, CardVia, ResolvedVia};
 use crate::auth::oauth2_dev::{self, authorize, callback, secret, token, CardOAuthSession};
 use crate::error::SjtuCliError;
-use crate::output::{render, Envelope, OutputFormat};
+use crate::output::{render, Envelope, EnvelopeMeta, OutputFormat};
 
 /// `sjtu card auth`：手动触发 OAuth2 授权流（首次使用时跑）。
 pub async fn cmd_auth(client_id: String, fmt: Option<OutputFormat>) -> Result<()> {
@@ -30,7 +23,6 @@ pub async fn cmd_auth(client_id: String, fmt: Option<OutputFormat>) -> Result<()
         &state,
     )?;
     tracing::info!("OAuth2 authorize: 已构造 URL，启 listener 后打开浏览器");
-
     authorize::open_in_browser(&url).await?;
 
     let (code, got_state) = callback::wait_for_callback().await?;
@@ -50,7 +42,6 @@ pub async fn cmd_auth(client_id: String, fmt: Option<OutputFormat>) -> Result<()
     )
     .await?;
 
-    // compute_expires_at 只接受 expires_in: u64，内部自动用 beijing_now() 计算绝对时间
     let expires_in = resp.expires_in;
     let sess = CardOAuthSession {
         client_id,
@@ -64,7 +55,7 @@ pub async fn cmd_auth(client_id: String, fmt: Option<OutputFormat>) -> Result<()
     oauth2_dev::save_session(&sess)?;
     tracing::info!("OAuth2 session 已落盘 ~/.sjtu-cli/sub_sessions/card_oauth.json");
 
-    let client = Client::connect().await?;
+    let client = crate::apps::card::Client::connect().await?;
     let info = client.get_balance().await?;
     let mut updated = oauth2_dev::load_session()?;
     updated.main_card_no = Some(info.card_no.clone());
@@ -81,109 +72,42 @@ pub async fn cmd_auth(client_id: String, fmt: Option<OutputFormat>) -> Result<()
     )
 }
 
-/// `sjtu card balance [--with-identity]`：当前卡余额查询。
-pub async fn cmd_balance(with_identity: bool, fmt: Option<OutputFormat>) -> Result<()> {
-    let started = Instant::now();
-    let info = ensure_fresh_and_call(|c| async move { c.get_balance().await }).await?;
-    let user = if with_identity {
-        info.user.as_ref().map(|u| UserIdentity {
-            code: u.code.clone().unwrap_or_default(),
-            name: u.name.clone().unwrap_or_default(),
-            organize: u
-                .organize
-                .as_ref()
-                .and_then(|o| o.name.clone())
-                .unwrap_or_default(),
-        })
-    } else {
-        None
+/// `sjtu card balance [--with-identity] [--via auto|oauth2|weixin]`：当前卡余额查询。
+pub async fn cmd_balance(
+    with_identity: bool,
+    via: CardVia,
+    fmt: Option<OutputFormat>,
+) -> Result<()> {
+    let has_oauth_token = oauth2_dev::load_session().is_ok();
+    let resolved = select_via(via, has_oauth_token);
+    let meta = EnvelopeMeta {
+        via: Some(resolved.name().to_string()),
+        source_hint: Some(resolved.source_hint().to_string()),
     };
-    let bank_no_redacted = if with_identity {
-        info.bank_no.as_deref().map(redact_bank_no)
-    } else {
-        None
-    };
-    let face_sub_type = if with_identity {
-        info.face_sub_type.clone()
-    } else {
-        None
-    };
-    let data = BalanceData {
-        card_no_redacted: redact_card_no(&info.card_no),
-        balance: info.card_balance,
-        trans_balance: info.trans_balance,
-        expire_date: info.expire_date.clone(),
-        lost: info.lost,
-        frozen: info.frozen,
-        face_type: info.face_type.clone(),
-        face_sub_type,
-        user,
-        bank_no_redacted,
-        from_cache: false,
-        elapsed_ms: started.elapsed().as_millis(),
-    };
-    render(Envelope::ok(data), fmt)
+    match resolved {
+        ResolvedVia::Weixin => cmd_balance_weixin(with_identity, meta, fmt).await,
+        ResolvedVia::Oauth2 => cmd_balance_oauth2(with_identity, meta, fmt).await,
+    }
 }
 
-/// `sjtu card history --days N --limit M`：消费记录查询。
-pub async fn cmd_history(days: u32, limit: u32, fmt: Option<OutputFormat>) -> Result<()> {
+/// `sjtu card history --days N --limit M [--via auto|oauth2|weixin]`：消费记录查询。
+pub async fn cmd_history(
+    days: u32,
+    limit: u32,
+    via: CardVia,
+    fmt: Option<OutputFormat>,
+) -> Result<()> {
     if days == 0 || days > 365 {
         return Err(SjtuCliError::InvalidInput(format!("--days {days} 超出范围 (1..=365)")).into());
     }
-    let started = Instant::now();
-    let end_local = chrono::Local::now().date_naive();
-    let begin_local = end_local - Duration::days((days as i64) - 1);
-
-    let sess = oauth2_dev::load_session()?;
-    let card_no = sess.main_card_no.clone().ok_or_else(|| {
-        SjtuCliError::CardOAuth(
-            "session 缺 main_card_no；先跑 `sjtu card balance` 一次以初始化".into(),
-        )
-    })?;
-
-    let card_no_for_call = card_no.clone();
-    let begin = begin_local;
-    let end = end_local;
-    let (total, txs) = ensure_fresh_and_call(move |c| {
-        let card_no = card_no_for_call.clone();
-        async move { c.get_transactions(&card_no, begin, end, limit).await }
-    })
-    .await?;
-
-    let beijing = FixedOffset::east_opt(8 * 3600).expect("+08:00");
-    let items: Vec<TransactionItem> = txs
-        .into_iter()
-        .map(|t| TransactionItem {
-            consumed_at: beijing
-                .timestamp_millis_opt(t.date_time_ms)
-                .single()
-                .unwrap_or_else(|| {
-                    tracing::warn!(
-                        "card_history: 无效 date_time_ms={} fallback to epoch（merchant={:?}）",
-                        t.date_time_ms,
-                        t.merchant
-                    );
-                    beijing.timestamp_millis_opt(0).unwrap()
-                }),
-            system: t.system,
-            merchant_no: t.merchant_no,
-            merchant: t.merchant,
-            description: t.description,
-            amount: t.amount,
-            balance_after: t.card_balance,
-        })
-        .collect();
-    let total_amount: Decimal = items.iter().map(|t| t.amount).sum();
-    let data = HistoryData {
-        card_no_redacted: redact_card_no(&card_no),
-        begin_date_local: begin_local.format("%Y-%m-%d").to_string(),
-        end_date_local: end_local.format("%Y-%m-%d").to_string(),
-        returned: items.len(),
-        total,
-        transactions: items,
-        total_amount,
-        from_cache: false,
-        elapsed_ms: started.elapsed().as_millis(),
+    let has_oauth_token = oauth2_dev::load_session().is_ok();
+    let resolved = select_via(via, has_oauth_token);
+    let meta = EnvelopeMeta {
+        via: Some(resolved.name().to_string()),
+        source_hint: Some(resolved.source_hint().to_string()),
     };
-    render(Envelope::ok(data), fmt)
+    match resolved {
+        ResolvedVia::Weixin => cmd_history_weixin(days, limit, meta, fmt).await,
+        ResolvedVia::Oauth2 => cmd_history_oauth2(days, limit, meta, fmt).await,
+    }
 }

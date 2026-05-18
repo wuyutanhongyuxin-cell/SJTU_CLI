@@ -3,4 +3,5 @@
 pub mod data;
 pub mod data_weixin;
 pub mod handlers;
+mod handlers_dispatch;
 mod refresh_helper;
