@@ -807,3 +807,29 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 **错误模式**：（潜在）看着像 typo 就自作主张改成 `dateTimeAccount`，反序列化静默失败该字段始终 None。
 **正确做法**：`#[serde(rename = "dateTimAccount")]` 锁住服务端原拼写；Rust 字段名也照抄少 'e'（`date_tim_account_ms`）；module doc + 字段 doc 双处标注 "intentional typo mirror"。
 **规则**：第三方 API 字段名以官方文档为准；宁可丑也别擦伤兼容；docs 显眼标注 typo intent，防止后人"修复"。
+
+---
+
+### 2026-05-18 — T4 一卡通 weixin path 双轨 fallback
+
+**双轨架构动机**：OAuth2 client_id 审批长期阻塞（developer.sjtu.edu.cn 流程慢），需做"无 client_id 也能跑"的兜底。weixin path 复用网信中心已批的 `janicweixin20150709` client_id（用户主 jaccount cookie 透明跳 OAuth2），HTML scrape `weixin.sjtu.edu.cn` 拿余额 + 消费记录。
+
+**Plan deviation 总览**（spec → plan 6 处 + plan → code 5 处共 11 条）：
+- D1: drop `util::decimal_opt` — OAuth2 path 现有 `trans_balance: Decimal` 已覆盖 weixin 同义字段
+- D2: `lost_status` / `freeze_status` enum **并行**保留 OAuth2 现有 bool 字段（不改 OAuth2 schema）
+- D3: SCHEMA.md 新建（plan 假设已存在但项目根无）
+- D4-D6: spec 误估 `BalanceData/HistoryData/TransactionItem` 字段名（实际 `card_no_redacted` 非 `card_no` 等）
+- D7: `data_weixin.rs` 拆出（≤200 行硬限）
+- D8: Task 10+11 commit 合并 atomic（避中间 cargo check 失败）
+- D9: `handlers_dispatch.rs` 拆出（≤200 行硬限）
+- D10: scraper 0.21 加 Cargo.toml（CLAUDE.md 项目结构早声明但实际依赖缺）
+- D11: `HistoryData.card_no_redacted = "<weixin>"` 占位（weixin fetch_history 不返卡号；Agent 据 `meta.via` 判断）
+
+**经验**：
+1. **Spec 写"独有字段"时先 grep 现有 struct** —— 多次出现"以为是新字段，实际现有字段已覆盖"。spec 阶段 self-review 应含「字段唯一性扫描」。
+2. **Plan 假设的 API/struct 字段名要现场 Read 校核**：plan deviation 4-6 全是 plan 阶段没 Read 现有 commands/card/data.rs，凭印象写字段名。下次 plan 阶段强制要求列「现有依赖 API 真实签名表」。
+3. **200 行硬限触发拆分是常态** —— Task 9 / Task 10 都自动拆。implementer 直接执行拆分预案而非 BLOCK 主 agent 是合理判断。
+4. **Envelope.meta 后向兼容设计**：`meta: Option<EnvelopeMeta>` + 内部字段 `Option<String>` + `skip_serializing_if`，5 个老子命令 JSON 输出形态 0 变化。
+5. **Cookie struct 注入 reqwest jar**：`crate::cookies::Cookie` 是纯数据 struct 无 `to_set_str` 方法，手卷 `cookie_to_set_str(&Cookie) -> String` 拼 `name=value; Domain=; Path=` 喂 `Jar::add_cookie_str`。expires 不拼 —— Jar 不在乎，stale 由 `SubSessionStale` 信号驱动。
+6. **`with_cas_refresh` 复用**：weixin path 复用 T8 的 retry helper，stale variant `SubSessionStale("card_weixin")` 由 `detect_stale_or_unexpected` 在响应 URL 落到 `jaccount/jalogin` 或 `oauth2/authorize` 时手动抛。
+7. **PII 红线在 parse 层 enforce**：weixin balance_parse 主动 drop `姓名 / 学号 / 绑定银行卡` 行（不写入 CardInfo），不依赖上层 redact。

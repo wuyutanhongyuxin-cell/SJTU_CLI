@@ -486,3 +486,34 @@
 | 2026-05-13 | OAuth2 path staleness fix ✅（补 5878fba 同源债） | `sjtu shuiyuan new-topic` 真机 403 → 严格核实 bug：`oauth2/mod.rs:46` cache hit 只判 `!sess.is_expired()`，没 `captured_at >= main.captured_at`，5878fba 修 CAS 时漏覆盖 OAuth2 path；shuiyuan.json captured_at=`2026-04-23` 比主 session `2026-05-12` 早 19 天但软 TTL=30d 未到 → 复用 stale `_t` 死循环；patch：`oauth2/mod.rs` 提前 load main session + 把 cache hit 判定换成 `cache_is_fresh(&sub, &main)` 复用 `cas::cache_is_fresh`；加 2 个 wiring unit test（stale 拒命中 / 同期或新接受）；端到端真机验证：retry new-topic 触发 OAuth2 重做，shuiyuan.json captured_at 刷新为 `2026-05-13T02:41:05`、Discourse 返 cooked HTML（topic 发出）；lessons 加 1 条 invariant（共享 staleness 函数必须覆盖所有 auth 入口）+ 4 条 reviewer 规则；fmt/clippy/test/release build 全绿 | T2.x"sub_session auto-invalidate on login_slogin.html" jwc-CAS 侧仍 TODO（CAS 入口 final_url 检测 + 自动 invalidate + 重试 1 次，与 OAuth2 path 不同语义层） |
 | 2026-05-17 | T4 一卡通 公网调研收口 + spec 起稿 | 公网 curl 真机：ecard 302→restrict（公网不可达，**路径 A 永久放弃**）/ card.sjtu→weixin H5 入口非 REST / **api.sjtu.edu.cn/v1/me/card 公网 200** + envelope `{errno,error,total,entities}` 与 elec 同款 / developer.sjtu.edu.cn/api/card.html 完整契约可读；3 处修正 5-15 预研偏差：①余额端点是 `/v1/me/card` 不是 `/v1/me/card/user` ②`cardBalance/transBalance/amount` 全部 **`double`** 不是 string，必走 `decimal_str_or_num` 转 Decimal ③envelope 复用 elec generic `Envelope<T>` 无需新；OAuth2 完整文档抓全：`jaccount.sjtu.edu.cn/oauth2/{authorize,token,logout}`，token 1800s expires_in + refresh_token 续期，A 模式支持 `card_info`+`card_transactions` 两 scope；写两份文档：①`research/2026-05-17-t4-update.md`（180+ 行公网调研补丁 + 申请引导 + Decimal/PII/红线决策）②`specs/2026-05-17-t4-ecard-oauth2-design.md`（14 节 ~25KB，含 17 文件 ~1260 行 行数预算 + 12 mockito 测试矩阵 + 7 真机 CP + 6 R/4 OQ + Decimal helper 提取到 util/decimal 单一来源 + with_token_refresh 同构 canvas_video）；用户决策落定：新模块 `src/auth/oauth2_dev/` + redirect_uri `http://127.0.0.1:45123/callback` 固定端口；用户去 developer.sjtu.edu.cn 申请 client_id（3 工作日），同期我写 plan + TDD 代码骨架 | clientId 申请未提交；plan 文档未起；headless_chrome vs 系统默认浏览器二选一未定（spec 首版选 headless_chrome 复用主 session）；OQ-1 PKCE 服务端是否强制需审批后首跑确认；OQ-2 redirect_uri 平台是否允许 127.0.0.1 通配未定（spec 选固定端口 45123 防御此风险） |
 | 2026-04-25 | S3a/S3b 真机 CP 验收 | 8/8 真机 checkpoint 全过：CP-1 login-probe → `authenticated:true` `from_cache:true` `elapsed_ms=6` `current_user.id=72509`；CP-2 latest --limit 3 → `returned=3`；CP-3 topic 468808 --post-limit 5 → `posts[0].post_number=1` `username=Narrenschiff`；CP-4 inbox --unread-only → `returned=6`；CP-5 search "jaccount" --in post → `posts_count=50`；CP-6 二次 login-probe → `elapsed_ms=6 < 100`；CP-M1 messages --filter inbox → `username=<水源昵称>` `returned=2`；CP-M2 message 404691 三 render 模式 (plain/markdown/raw) 语义全对（plain 剥 md / markdown==raw 保留）；**根因诊断**：本次卡 30+ 分钟全因 release binary 是 2026-04-23 16:55 编的旧版本（缺 `apps/shuiyuan/http.rs` 的 `pool_idle_timeout(0)` + `http1_only` 等修复）→ `cargo build --release` 重编后立刻通；本机网络须设 `HTTPS_PROXY=http://127.0.0.1:10808`（Clash mixed port），直连 DNS 解析水源超时；新增 `examples/proxy_diag.rs` 三组 builder 对照实验 `Default / Proxy::all / no_proxy + sjtu builder` 已删 | 写端点 CP-W4 (new-topic) 真机未触发；S3b pm-send 写端点未实装；S3b 交我办消息中心 SP 调研未做（待用户配合 chrome-devtools MCP）；S3d 办事大厅 / S3e 生活服务尚未启动 |
+
+---
+
+### 2026-05-18 T4 一卡通 weixin path fallback ✅
+
+OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie 透明跳 OAuth2 → HTML scrape `weixin.sjtu.edu.cn/xxzx/sjtu-net/ecard/ecard*.php`）作 fallback。
+
+**11 个 commit 全 done**：
+
+1. `feat(t4)` Envelope.meta + EnvelopeMeta struct + SCHEMA.md 新建
+2. `feat(t4)` CardVia enum + select_via 路径选择器
+3. `feat(t4)` CardInfo 加 lost_status/freeze_status enum 字段
+4. `feat(t4)` weixin/money.rs parse_money_zh
+5. `feat(t4)` weixin/balance_parse.rs + scraper 依赖
+6. `feat(t4)` weixin/history_parse.rs + footer 汇总
+7. `feat(t4)` weixin/client.rs cookie 注入
+8. `feat(t4)` weixin/mod.rs 顶层 fetch + with_cas_refresh + stale detect
+9. `feat(t4)` data_weixin.rs / data_weixin_tests.rs 转换器
+10. `feat(t4)` handlers + cli --via dispatch + flag（atomic 合并）
+11. `docs(t4)` 文档同步（本 commit）
+
+**真机 CP 待跑（用户校园网内 + 已 jaccount login）**：
+- CP-WX-BAL：`sjtu card balance --via weixin` 跑通
+- CP-WX-HIST：`sjtu card history --days 7 --via weixin` 跑通
+- CP-WX-STALE：模拟 30 分钟不活动 → 触发 `SubSessionStale("card_weixin")` → auto refresh → 成功
+- CP-WX-AUTO：默认 `--via auto` 无 OAuth2 token 应自动 weixin → `envelope.meta.via=weixin`
+
+**Open Questions 待 CP 阶段回填**：
+- OQ-WX-1：query 参数名 `startdate`/`enddate` 服务端实际接受？或其他名（`begin`/`end`）？
+- OQ-WX-2：stale 形态 — redirect URL 是 `jaccount/jalogin` 还是 `oauth2/authorize`？
+- OQ-WX-3：HTML selector（`<th>卡账号</th>` 锚点）稳定性 — 阶段性复测，发现改版及时更新 fixture

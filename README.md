@@ -103,18 +103,27 @@ sjtu jwc gpa-by-semester --xnm-from 2022 --xnm-to 2024 --yaml
 
 > **注意**：`--rank nj`（纯年级）在部分 SJTU 实例上 server 返 HTML 错误页 → 单学期会 exit 1，多学期版会装进 `failed[]` 不崩。Agent 默认走 `--rank njzy`。N309131 server-side 统计每次 4-5s（不是网络 RTT），12 学期循环真机 ~56s。
 
-一卡通余额 + 消费记录（OAuth2 Authorization Code，鉴权后通过 api.sjtu.edu.cn 拿数据）：
+一卡通余额 + 消费记录（双轨鉴权，默认 `--via auto` 自动选择路径）：
 
 ```bash
-# 首次：在 https://developer.sjtu.edu.cn 申请 client_id（scope: card_info + card_transactions）
-# 把 client_secret 落本机 ~/.sjtu-cli/card_oauth_secret.txt（Unix chmod 600）
-
+# OAuth2 path（需 developer.sjtu.edu.cn 审批的 client_id）
 sjtu card auth --client-id <YOUR_CLIENT_ID>   # 弹浏览器同意授权，token 落 sub_sessions/card_oauth.json
-sjtu card balance                              # 当前卡余额（默认抹身份）
-sjtu card balance --with-identity              # 含学号 / 姓名 / 单位 / 银行卡尾号
-sjtu card history --days 7 --limit 50          # 7 天消费记录
-sjtu card history --days 30 --yaml             # 30 天，YAML 输出
+sjtu card balance --via oauth2                 # 强制走 OAuth2 path
+sjtu card balance --with-identity              # 含学号 / 姓名 / 单位 / 银行卡尾号（仅 oauth2 path）
+
+# weixin path（无需 client_id，用 jaccount cookie 透明跳 OAuth2 拿 weixin.sjtu.edu.cn 数据）
+sjtu card balance --via weixin                 # 强制走 weixin path（HTML scrape，无需申请）
+sjtu card history --days 7 --via weixin        # 7 天消费记录，weixin path
+sjtu card history --days 30 --yaml             # 30 天，YAML 输出（auto 路径）
 ```
+
+| `--via` | 鉴权 | 数据源 | 适用场景 |
+|---|---|---|---|
+| `auto`（默认）| 本地有 OAuth2 token → oauth2；否则 weixin | 自动 | 无脑选 |
+| `oauth2` | OAuth2 Authorization Code | `api.sjtu.edu.cn` | 已申请 client_id |
+| `weixin` | jaccount cookie + HTML scrape | `weixin.sjtu.edu.cn` | 无 client_id 时兜底 |
+
+**Envelope `meta.via`** 字段反映本次实际走的路径，Agent 可据此判断 schema 中可选字段（`--with-identity` 仅 oauth2 path 出 user/bank_no_redacted；weixin path PII 红线永 None）。
 
 - token 自动续期：access_token TTL 30 分钟，refresh_token 透明 refresh，用户无感
 - 金额一律 `Decimal` 序列化为字符串（避 JSON f64 精度坑）；total_amount 链式累加精确

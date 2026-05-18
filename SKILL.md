@@ -283,6 +283,21 @@ sjtu elec history --days 7
 - API 调用过程中 errno=10002 / "Authentication Failed" / 401 → 触发 with_token_refresh 自动续期 + 重试 1 次
 - 用户无需重新跑 `card auth`，除非 refresh_token 也失效（罕见）
 
+### Envelope `meta` 字段（v1+，多路径子系统）
+
+仅多路径子系统（当前：`card` 双轨 OAuth2/weixin）填 `meta`：
+
+```yaml
+meta:
+  via: "oauth2" | "weixin"
+  source_hint: "api.sjtu.edu.cn" | "weixin.sjtu.edu.cn"
+```
+
+Agent 用法：
+- `meta.via=oauth2`：可有 `data.user / data.bank_no_redacted`（视 `--with-identity` flag）
+- `meta.via=weixin`：上述 PII 字段**永远 None**（红线）；`data.card_no_redacted` 是占位字符串 `<weixin>`，**非个体卡号识别**
+- 其他子系统（elec/shuiyuan/canvas/jwc/services）envelope **不含** `meta` 字段（保后向兼容）
+
 ### 永久不实装的写端点（CLI 红线）
 
 `PUT /v1/me/card` 开卡 / `POST /v1/me/card` 挂失/解挂/改密码 / 充值 / 改照片 / 拾卡 — 一律不实装。
