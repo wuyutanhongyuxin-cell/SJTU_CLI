@@ -1,9 +1,13 @@
 //! `ecardbalance.php` HTML → `CardInfo`。
 //!
-//! HTML 结构（真机调研 2026-05-17）：`<table class="info-table">` 行 = `<tr><th>字段名</th><td>值</td></tr>`。
-//! 用 scraper 按 `<th>` 文本 anchor 抽 `<td>` 内容（不依赖 class/id，未来 HTML 改版风险 OQ-WX-3）。
+//! HTML 结构（真机 dump 2026-05-19 D12-T1）：
+//! - 主 table 是页内第 2 个，`<table class="table table-condensed">`（第一个是顶蓝条 banner，无 class）
+//! - 余额放在 `<caption><strong>校园卡余额：&nbsp;&nbsp;&nbsp;&nbsp;3.88 元</strong></caption>`
+//! - 字段 rows 在 `<tbody><tr><td>字段名：</td><td>值</td></tr>`（两个 td、label 含全角 `：`）
 //!
-//! PII（姓名 / 学号）**不写入** CardInfo —— 解析时主动 drop。绑定银行卡走 OAuth2 既有 redact 路径。
+//! 用 scraper 按 label 文本 anchor 抽 td 内容（不依赖 class/id，未来 HTML 改版风险 OQ-WX-3）。
+//!
+//! PII（姓名 / 学号 / 绑定银行卡）**不写入** CardInfo —— 解析时主动 drop。
 
 use anyhow::{anyhow, Context, Result};
 use rust_decimal::Decimal;
@@ -14,48 +18,59 @@ use crate::apps::card::models::{CardFreezeStatus, CardInfo, CardLostStatus};
 
 /// 解析 ecardbalance.php HTML 主体为 CardInfo。
 ///
-/// 必有字段：`卡账号` / `校园卡余额`。缺失抛 UpstreamError。
-/// 可选字段：`过渡余额` / `挂失状态` / `冻结状态` 缺失 → warn + 用合理默认（ZERO/Normal）。
+/// 必有字段：caption 的『校园卡余额：N 元』 + `卡账号：` row。缺失抛 anyhow Err。
+/// 可选字段：`过渡余额：` / `挂失状态：` / `冻结状态：` 缺失 → warn + 用合理默认。
 pub fn parse_balance(html: &str) -> Result<CardInfo> {
     let doc = Html::parse_document(html);
-    let row_sel = Selector::parse("tr").map_err(|e| anyhow!("CSS tr 选择器：{e:?}"))?;
-    let th_sel = Selector::parse("th").map_err(|e| anyhow!("CSS th 选择器：{e:?}"))?;
-    let td_sel = Selector::parse("td").map_err(|e| anyhow!("CSS td 选择器：{e:?}"))?;
+    let table_sel = Selector::parse("table.table-condensed")
+        .map_err(|e| anyhow!("CSS table.table-condensed：{e:?}"))?;
+    let table = doc
+        .select(&table_sel)
+        .next()
+        .ok_or_else(|| anyhow!("HTML 缺失 table.table-condensed"))?;
+
+    let caption_strong_sel =
+        Selector::parse("caption strong").map_err(|e| anyhow!("CSS caption strong：{e:?}"))?;
+    let caption_text = table
+        .select(&caption_strong_sel)
+        .next()
+        .map(|e| e.text().collect::<String>())
+        .ok_or_else(|| anyhow!("HTML 缺失『校园卡余额』caption"))?;
+    let card_balance = extract_after_label(&caption_text, "校园卡余额：")
+        .ok_or_else(|| anyhow!("caption 中未找到『校园卡余额：N 元』形态"))
+        .and_then(|s| parse_money_zh(&s).context("校园卡余额解析"))?;
+
+    let row_sel = Selector::parse("tbody tr").map_err(|e| anyhow!("CSS tbody tr：{e:?}"))?;
+    let td_sel = Selector::parse("td").map_err(|e| anyhow!("CSS td：{e:?}"))?;
 
     let mut card_no: Option<String> = None;
-    let mut card_balance: Option<Decimal> = None;
     let mut trans_balance: Decimal = Decimal::ZERO;
     let mut lost: Option<CardLostStatus> = None;
     let mut frozen: Option<CardFreezeStatus> = None;
 
-    for tr in doc.select(&row_sel) {
-        let label_str = tr
-            .select(&th_sel)
-            .next()
-            .map(|e| e.text().collect::<String>().trim().to_string());
-        let value_str = tr
+    for tr in table.select(&row_sel) {
+        let tds: Vec<String> = tr
             .select(&td_sel)
-            .next()
-            .map(|e| e.text().collect::<String>().trim().to_string());
-        match (label_str.as_deref(), value_str.as_deref()) {
-            (Some("卡账号"), Some(v)) => card_no = Some(v.to_string()),
-            (Some("校园卡余额"), Some(v)) => {
-                card_balance = Some(parse_money_zh(v).context("校园卡余额解析")?)
-            }
-            (Some("过渡余额"), Some(v)) => {
-                trans_balance = parse_money_zh(v).unwrap_or_else(|e| {
+            .map(|e| e.text().collect::<String>().trim().to_string())
+            .collect();
+        if tds.len() < 2 {
+            continue;
+        }
+        match tds[0].as_str() {
+            "卡账号：" => card_no = Some(tds[1].clone()),
+            "过渡余额：" => {
+                trans_balance = parse_money_zh(&tds[1]).unwrap_or_else(|e| {
                     tracing::warn!(error = %e, "过渡余额解析失败，回退 0");
                     Decimal::ZERO
                 });
             }
-            (Some("挂失状态"), Some(v)) => lost = parse_lost_status(v),
-            (Some("冻结状态"), Some(v)) => frozen = parse_freeze_status(v),
-            _ => {} // 姓名 / 学号 / 绑定银行卡 / 其它行：丢弃
+            "挂失状态：" => lost = parse_lost_status(&tds[1]),
+            "冻结状态：" => frozen = parse_freeze_status(&tds[1]),
+            _ => {} // 姓名 / 绑定银行卡 / 其它：丢弃（PII 红线）
         }
     }
 
     let card_no = card_no.ok_or_else(|| anyhow!("HTML 缺失『卡账号』字段"))?;
-    let card_balance = card_balance.ok_or_else(|| anyhow!("HTML 缺失『校园卡余额』字段"))?;
 
     Ok(CardInfo {
         user: None,
@@ -72,6 +87,14 @@ pub fn parse_balance(html: &str) -> Result<CardInfo> {
         lost_status: lost,
         freeze_status: frozen,
     })
+}
+
+/// 从 `"校园卡余额：&nbsp;&nbsp;3.88 元"` 中按 prefix 截取金额片段。
+/// 服务端用 `&nbsp;` (U+00A0) 缩进，先全文替换 nbsp 再 trim 避免歧义。
+fn extract_after_label(text: &str, prefix: &str) -> Option<String> {
+    let idx = text.find(prefix)?;
+    let rest = &text[idx + prefix.len()..];
+    Some(rest.replace('\u{00A0}', " ").trim().to_string())
 }
 
 fn parse_lost_status(s: &str) -> Option<CardLostStatus> {
@@ -122,8 +145,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_card_balance_errors() {
-        let html = r#"<table><tr><th>卡账号</th><td>X</td></tr></table>"#;
+    fn missing_card_balance_caption_errors() {
+        // table-condensed 存在但没 caption
+        let html = r#"<table class="table table-condensed"><tbody><tr><td>卡账号：</td><td>X</td></tr></tbody></table>"#;
         let r = parse_balance(html);
         assert!(r.is_err());
         let msg = format!("{:#}", r.unwrap_err());
@@ -132,7 +156,10 @@ mod tests {
 
     #[test]
     fn missing_card_no_errors() {
-        let html = r#"<table><tr><th>校园卡余额</th><td>1 元</td></tr></table>"#;
+        let html = r#"<table class="table table-condensed">
+            <caption><strong>校园卡余额：1 元</strong></caption>
+            <tbody></tbody>
+        </table>"#;
         let r = parse_balance(html);
         assert!(r.is_err());
         let msg = format!("{:#}", r.unwrap_err());
@@ -140,11 +167,22 @@ mod tests {
     }
 
     #[test]
+    fn missing_table_class_errors() {
+        let html = r#"<html><body><p>no table here</p></body></html>"#;
+        let r = parse_balance(html);
+        assert!(r.is_err());
+        let msg = format!("{:#}", r.unwrap_err());
+        assert!(msg.contains("table-condensed"), "错误应提及缺 table：{msg}");
+    }
+
+    #[test]
     fn lost_status_lost_variant() {
-        let html = r#"<table>
-            <tr><th>卡账号</th><td>X</td></tr>
-            <tr><th>校园卡余额</th><td>0 元</td></tr>
-            <tr><th>挂失状态</th><td>挂失</td></tr>
+        let html = r#"<table class="table table-condensed">
+            <caption><strong>校园卡余额：0 元</strong></caption>
+            <tbody>
+                <tr><td>卡账号：</td><td>X</td></tr>
+                <tr><td>挂失状态：</td><td>挂失</td></tr>
+            </tbody>
         </table>"#;
         let ci = parse_balance(html).unwrap();
         assert_eq!(ci.lost_status, Some(CardLostStatus::Lost));
@@ -152,10 +190,12 @@ mod tests {
 
     #[test]
     fn unknown_status_warns_and_returns_none() {
-        let html = r#"<table>
-            <tr><th>卡账号</th><td>X</td></tr>
-            <tr><th>校园卡余额</th><td>0 元</td></tr>
-            <tr><th>挂失状态</th><td>未知状态</td></tr>
+        let html = r#"<table class="table table-condensed">
+            <caption><strong>校园卡余额：0 元</strong></caption>
+            <tbody>
+                <tr><td>卡账号：</td><td>X</td></tr>
+                <tr><td>挂失状态：</td><td>未知状态</td></tr>
+            </tbody>
         </table>"#;
         let ci = parse_balance(html).unwrap();
         assert!(
@@ -163,5 +203,12 @@ mod tests {
             "未知状态应 None: {:?}",
             ci.lost_status
         );
+    }
+
+    #[test]
+    fn extract_after_label_strips_nbsp() {
+        // 真机 caption 文本通常是 "校园卡余额：\u{00A0}\u{00A0}\u{00A0}\u{00A0}3.88 元"
+        let s = "校园卡余额：\u{00A0}\u{00A0}3.88 元";
+        assert_eq!(extract_after_label(s, "校园卡余额：").as_deref(), Some("3.88 元"));
     }
 }
