@@ -133,10 +133,40 @@ fn detect_stale_or_unexpected(final_url: &str, body: &str, status: u16) -> Resul
     Ok(())
 }
 
+/// 把 URL 里的裸空格替换为 `%20`。SJTU PHP OAuth2 endpoint 返回的 Location 头
+/// `scope` 参数含多个空格分隔的 scope，未做 percent-encoding，违反 RFC 3986；
+/// 浏览器宽容自动 fixup，但 reqwest 严格 URL parser 拒整条 Location 导致
+/// redirect middleware short-circuit（D12 三层 bug L3）。本函数只处理空格，
+/// 其它非法字符按 fail-fast 思路不动。
+fn sanitize_location(loc: &str) -> String {
+    loc.replace(' ', "%20")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    #[test]
+    fn sanitize_location_replaces_spaces() {
+        let input = "https://j.sjtu.edu.cn/oauth2/authorize?scope=profile card_info&state=4";
+        let out = sanitize_location(input);
+        assert_eq!(
+            out,
+            "https://j.sjtu.edu.cn/oauth2/authorize?scope=profile%20card_info&state=4"
+        );
+    }
+
+    #[test]
+    fn sanitize_location_no_change_when_already_encoded() {
+        let input = "https://x/y?z=a%20b";
+        assert_eq!(sanitize_location(input), input);
+    }
+
+    #[test]
+    fn sanitize_location_handles_multiple_spaces() {
+        assert_eq!(sanitize_location("a b c d"), "a%20b%20c%20d");
+    }
 
     #[test]
     fn build_history_url_with_both_dates() {
