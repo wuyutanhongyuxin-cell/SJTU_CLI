@@ -142,6 +142,41 @@ fn sanitize_location(loc: &str) -> String {
     loc.replace(' ', "%20")
 }
 
+/// 手卷 redirect chain：每跳 GET、读 Location、sanitize 空格、url.join、继续。
+/// 直到非 3xx 响应或超过 15 跳。绕开 reqwest 严格 URL parser 对裸空格 Location 的拒绝。
+async fn weixin_follow(client: &reqwest::Client, start: &str) -> Result<(String, String)> {
+    use reqwest::header::LOCATION;
+    let mut url = reqwest::Url::parse(start)
+        .map_err(|e| SjtuCliError::NetworkError(format!("parse start url: {e}")))?;
+    for hop in 0..15 {
+        tracing::debug!(hop, %url, "weixin-follow GET");
+        let resp = client
+            .get(url.clone())
+            .send()
+            .await
+            .map_err(|e| SjtuCliError::NetworkError(format!("GET hop {hop}: {e}")))?;
+        if !resp.status().is_redirection() {
+            let final_url = resp.url().to_string();
+            let body = resp
+                .text()
+                .await
+                .map_err(|e| SjtuCliError::NetworkError(format!("read body: {e}")))?;
+            return Ok((final_url, body));
+        }
+        let loc_raw = resp
+            .headers()
+            .get(LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| anyhow!("3xx hop {hop} 缺 Location"))?
+            .to_string();
+        let sanitized = sanitize_location(&loc_raw);
+        url = url
+            .join(&sanitized)
+            .map_err(|e| anyhow!("hop {hop} Location join 失败：{e}"))?;
+    }
+    Err(anyhow!("weixin-follow 超过 15 跳"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +201,64 @@ mod tests {
     #[test]
     fn sanitize_location_handles_multiple_spaces() {
         assert_eq!(sanitize_location("a b c d"), "a%20b%20c%20d");
+    }
+
+    #[tokio::test]
+    async fn weixin_follow_follows_chain_with_space_in_scope() {
+        let mut server = mockito::Server::new_async().await;
+        let host = server.host_with_port();
+        let m1 = server
+            .mock("GET", "/start")
+            .with_status(302)
+            .with_header(
+                "Location",
+                &format!("http://{host}/next?scope=a b&state=4"),
+            )
+            .create_async()
+            .await;
+        let m2 = server
+            .mock("GET", "/next")
+            .match_query(mockito::Matcher::AllOf(vec![
+                mockito::Matcher::UrlEncoded("scope".into(), "a b".into()),
+                mockito::Matcher::UrlEncoded("state".into(), "4".into()),
+            ]))
+            .with_status(200)
+            .with_body("<html>final</html>")
+            .create_async()
+            .await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .unwrap();
+        let (final_url, body) = weixin_follow(&client, &format!("http://{host}/start"))
+            .await
+            .unwrap();
+        assert!(final_url.contains("/next"), "final_url={final_url}");
+        assert_eq!(body, "<html>final</html>");
+        m1.assert_async().await;
+        m2.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn weixin_follow_errors_after_15_hops() {
+        let mut server = mockito::Server::new_async().await;
+        let host = server.host_with_port();
+        let _m = server
+            .mock("GET", mockito::Matcher::Any)
+            .with_status(302)
+            .with_header("Location", &format!("http://{host}/loop"))
+            .expect_at_least(15)
+            .create_async()
+            .await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .unwrap();
+        let r = weixin_follow(&client, &format!("http://{host}/start")).await;
+        assert!(r.is_err());
+        assert!(format!("{:#}", r.unwrap_err()).contains("超过 15 跳"));
     }
 
     #[test]
