@@ -4,7 +4,7 @@
 //! `cookie_to_set_str` 拼成 `Set-Cookie` 形式喂 `reqwest::cookie::Jar::add_cookie_str`。
 //!
 //! `UA`、`cookie_to_set_str`、`build_weixin_client` 均为 `pub(super)`，
-//! 供 Task 8（weixin/mod.rs 顶层 fetch_* 入口）使用；Task 8 尚未实现，故暂时 allow dead_code。
+//! 供 weixin/mod.rs 顶层 `fetch_balance` / `fetch_history` / `fetch_history_summary` 使用。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,13 +17,11 @@ use reqwest::Client;
 use crate::cookies::{Cookie, Session};
 use crate::error::SjtuCliError;
 
-/// Chrome 124 UA，由 Task 8 fetch_* 函数使用。
-#[allow(dead_code)]
+/// Chrome 124 UA，由 fetch_* 函数（weixin/mod.rs）间接使用。
 pub(super) const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /// 把 `Cookie` 拼成 `name=value; Domain=...; Path=...` 字符串。
 /// expires 故意不拼：jar 不在乎过期，stale 由 `SubSessionStale` 信号驱动重 CAS。
-#[allow(dead_code)]
 pub(super) fn cookie_to_set_str(c: &Cookie) -> String {
     let mut s = format!("{}={}", c.name, c.value);
     if let Some(d) = &c.domain {
@@ -36,7 +34,6 @@ pub(super) fn cookie_to_set_str(c: &Cookie) -> String {
 }
 
 /// 构造 weixin path 用的 reqwest Client。注入主 session jaccount cookie。
-#[allow(dead_code)]
 pub(super) fn build_weixin_client(main_session: &Session) -> Result<Client> {
     let jar = Arc::new(Jar::default());
     let url = reqwest::Url::parse("https://weixin.sjtu.edu.cn/")
