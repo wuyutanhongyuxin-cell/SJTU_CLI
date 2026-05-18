@@ -98,3 +98,69 @@ fn negative_amount_serialized_as_string() {
     assert!(s.contains(r#""amount":"-10.66""#), "actual: {s}");
     assert!(s.contains(r#""cardBalance":"273.59""#), "actual: {s}");
 }
+
+#[cfg(test)]
+mod weixin_enum_tests {
+    use crate::apps::card::models::{CardFreezeStatus, CardInfo, CardLostStatus};
+
+    #[test]
+    fn lost_status_serde_roundtrip() {
+        let v = CardLostStatus::Normal;
+        let s = serde_json::to_string(&v).unwrap();
+        assert_eq!(s, "\"Normal\"");
+        let back: CardLostStatus = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, CardLostStatus::Normal);
+    }
+
+    #[test]
+    fn lost_status_lost_variant() {
+        let v = CardLostStatus::Lost;
+        let s = serde_json::to_string(&v).unwrap();
+        assert_eq!(s, "\"Lost\"");
+    }
+
+    #[test]
+    fn freeze_status_serde_roundtrip() {
+        let v = CardFreezeStatus::Frozen;
+        let s = serde_json::to_string(&v).unwrap();
+        let back: CardFreezeStatus = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, CardFreezeStatus::Frozen);
+    }
+
+    /// weixin 独有字段默认 None，OAuth2 path 反序列化原 API 响应不破坏
+    #[test]
+    fn card_info_lost_status_defaults_none_when_absent() {
+        let api_json = r#"{
+            "cardNo":"123456",
+            "cardBalance":"3.88",
+            "transBalance":"0",
+            "lost":false,
+            "frozen":false
+        }"#;
+        let ci: CardInfo = serde_json::from_str(api_json).unwrap();
+        assert!(ci.lost_status.is_none(), "lost_status 应默认 None");
+        assert!(ci.freeze_status.is_none(), "freeze_status 应默认 None");
+    }
+
+    /// weixin path 填了 lost_status 后能正确反序列化
+    #[test]
+    fn card_info_with_lost_status_roundtrip() {
+        let mut ci: CardInfo = serde_json::from_str(
+            r#"{
+            "cardNo":"X","cardBalance":"0","transBalance":"0","lost":false,"frozen":false
+        }"#,
+        )
+        .unwrap();
+        ci.lost_status = Some(CardLostStatus::Normal);
+        ci.freeze_status = Some(CardFreezeStatus::Normal);
+        let s = serde_json::to_string(&ci).unwrap();
+        assert!(
+            s.contains("\"lost_status\":\"Normal\""),
+            "应序列化 lost_status: {s}"
+        );
+        assert!(
+            s.contains("\"freeze_status\":\"Normal\""),
+            "应序列化 freeze_status: {s}"
+        );
+    }
+}

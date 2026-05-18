@@ -62,6 +62,12 @@ pub struct CardInfo {
     /// 含"硕士研究生"等身份描述 → `--with-identity` 才出。
     #[serde(rename = "faceSubType", default)]
     pub face_sub_type: Option<String>,
+    /// weixin path 独有：挂失状态文本枚举。OAuth2 path 永 None（仍用 `lost: bool`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lost_status: Option<CardLostStatus>,
+    /// weixin path 独有：冻结状态文本枚举。OAuth2 path 永 None（仍用 `frozen: bool`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_status: Option<CardFreezeStatus>,
 }
 
 /// 卡用户身份（spec §5.2 user.*）。
@@ -105,4 +111,18 @@ pub struct Transaction {
     /// 交易后卡余额
     #[serde(rename = "cardBalance", with = "crate::util::decimal")]
     pub card_balance: Decimal,
+}
+
+/// weixin path 独有：挂失状态字符串 → enum。OAuth2 path 用 `lost: bool` 不走此字段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardLostStatus {
+    Normal,
+    Lost,
+}
+
+/// weixin path 独有：冻结状态。OAuth2 path 用 `frozen: bool` 不走此字段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardFreezeStatus {
+    Normal,
+    Frozen,
 }
