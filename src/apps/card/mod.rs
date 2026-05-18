@@ -11,6 +11,7 @@ pub mod http;
 pub mod models;
 pub mod throttle;
 pub mod via;
+pub mod weixin;
 
 pub use api::Client;
 pub use models::{CardInfo, Transaction};
