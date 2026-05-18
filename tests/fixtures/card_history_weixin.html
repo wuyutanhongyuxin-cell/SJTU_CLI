@@ -1,37 +1,27 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>消费记录</title></head>
+<head>
+<meta charset='utf-8'>
+<title>校园卡流水查询</title>
+</head>
 <body>
-<table class="history">
-  <thead>
-    <tr><th>交易时间</th><th>系统</th><th>商户</th><th>金额</th><th>卡余额</th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>2026-05-17 00:41:00</td>
-      <td>六期水控</td>
-      <td>六期水控</td>
-      <td>-0.8</td>
-      <td>3.88</td>
-    </tr>
-    <tr>
-      <td>2026-05-16 12:15:30</td>
-      <td>闵一内档</td>
-      <td>闵行一餐淮扬快餐</td>
-      <td>-15.5</td>
-      <td>4.68</td>
-    </tr>
-    <tr>
-      <td>2026-05-15 09:00:00</td>
-      <td>银行转账</td>
-      <td>银行转账</td>
-      <td>20</td>
-      <td>20.18</td>
-    </tr>
-  </tbody>
-  <tfoot>
-    <tr><td colspan="3">合计</td><td>充值 20 元 / 消费 -16.3 元</td><td></td></tr>
-  </tfoot>
+<div id="class" align="center">
+<table style="background-color: #6495ED;width:100%;"><tr><td><strong>校园卡流水查询</strong></td></tr></table>
+</div>
+<br>
+<div style="padding: 10px;">
+<p align="left"><strong><font color="#A52A2A">您最近30天的校园卡流水</font></strong></p>
+<table class="table table-condensed">
+<thead style="font-size:14px"><tr><th>消费日期、地点</th><th style="text-align: right;">交易额</th><th style="text-align: right;">卡余额</th></tr></thead>
+<tbody style="font-size:14px">
+<td><strong>2026-05-17 00:41:00</strong><br>示例商户A<br>示例商户A</td><td style="text-align: right;">-0.8</td><td style="text-align: right;">3.88</td>
+<td><strong>2026-05-16 12:15:30</strong><br>示例商户B<br>示例商户B</td><td style="text-align: right;">-15.5</td><td style="text-align: right;">4.68</td>
+<td><strong>2026-05-15 09:00:00</strong><br>银行转账</td><td style="text-align: right;"><font color="#FF0000">20</font></td><td style="text-align: right;">20.18</td>
+<tr><td colspan="3">&nbsp;</td></tr>
+<tr><td colspan="2"><strong>充值收入：</strong></td><td align="right"><strong>20&nbsp;元</strong></td></tr>
+<tr><td colspan="2"><strong>消费支出：</strong></td><td align="right"><strong>-16.3&nbsp;元</strong></td></tr>
+</tbody>
 </table>
+</div>
 </body>
 </html>
