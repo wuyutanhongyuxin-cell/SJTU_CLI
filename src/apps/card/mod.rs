@@ -10,6 +10,7 @@ pub mod api;
 pub mod http;
 pub mod models;
 pub mod throttle;
+pub mod via;
 
 pub use api::Client;
 pub use models::{CardInfo, Transaction};
