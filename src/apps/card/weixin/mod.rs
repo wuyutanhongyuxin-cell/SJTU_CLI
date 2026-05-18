@@ -28,25 +28,14 @@ use crate::error::SjtuCliError;
 const BALANCE_URL: &str = "https://weixin.sjtu.edu.cn/xxzx/sjtu-net/ecard/ecardbalance.php";
 const HISTORY_URL: &str = "https://weixin.sjtu.edu.cn/xxzx/sjtu-net/ecard/ecardbill.php";
 
-/// 抓余额。with_cas_refresh 包装，stale 时自动重 cas + 重抓。
-pub async fn fetch_balance(_main_session: &Session) -> Result<CardInfo> {
-    with_cas_refresh("card_weixin", BALANCE_URL, |session| async move {
-        let client = build_weixin_client(&session)?;
-        let resp = client
-            .get(BALANCE_URL)
-            .send()
-            .await
-            .map_err(|e| SjtuCliError::NetworkError(format!("GET balance: {e}")))?;
-        let status = resp.status();
-        let final_url = resp.url().to_string();
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| SjtuCliError::NetworkError(format!("读 balance body: {e}")))?;
-        detect_stale_or_unexpected(&final_url, &body, status.as_u16())?;
-        parse_balance(&body)
-    })
-    .await
+/// 抓余额。L1 修复：主 session 直透传 weixin_follow（手卷 redirect），
+/// 不再误用 with_cas_refresh 借 sub_session（那个机制是给 ASP CAS 路径用的、
+/// 而 weixin path 直接靠 jaccount cookie 走 OAuth2，sub_session 内容不适用）。
+pub async fn fetch_balance(main_session: &Session) -> Result<CardInfo> {
+    let client = build_weixin_client(main_session)?;
+    let (final_url, body) = weixin_follow(&client, BALANCE_URL).await?;
+    detect_stale_or_unexpected(&final_url, &body, 200)?;
+    parse_balance(&body)
 }
 
 /// 抓消费记录。`start`/`end` 是日期窗口（默认服务端最近 30 天，OQ-WX-1 plan 阶段未确定参数名）。
@@ -116,13 +105,17 @@ fn build_history_url(start: Option<NaiveDate>, end: Option<NaiveDate>) -> String
     }
 }
 
-/// 检测 redirect 链是否被 jaccount 拦截（stale 形态 OQ-WX-2 plan 假定）。
-/// 命中 → 抛 `SubSessionStale("card_weixin")`，由 `with_cas_refresh` 接住重试。
+/// 检测最终落地 URL 是否仍在 jaccount 域 —— 此时主 session 已失效。
+///
+/// **L1 配套语义改**：weixin path 用主 jaccount session 直透传，
+/// 不存在 sub_session 概念；不再抛 `SubSessionStale("card_weixin")`
+/// （那个信号是给 cas retry 层用的）。改抛 `SessionExpired`，
+/// 提示用户跑 `sjtu login` 重新扫码。
 fn detect_stale_or_unexpected(final_url: &str, body: &str, status: u16) -> Result<()> {
     if final_url.contains("jaccount.sjtu.edu.cn/jaccount/jalogin")
         || final_url.contains("jaccount.sjtu.edu.cn/oauth2/authorize")
     {
-        return Err(SjtuCliError::SubSessionStale("card_weixin").into());
+        return Err(SjtuCliError::SessionExpired.into());
     }
     if status != 200 {
         return Err(anyhow!("weixin 非 200 响应 status={status}"));
@@ -277,28 +270,22 @@ mod tests {
     }
 
     #[test]
-    fn detect_stale_on_jalogin_redirect() {
+    fn detect_session_expired_on_jalogin_redirect() {
         let url = "https://jaccount.sjtu.edu.cn/jaccount/jalogin?...";
         let r = detect_stale_or_unexpected(url, "<table></table>", 200);
         assert!(r.is_err());
         let err = r.unwrap_err();
         let downcast = err.downcast_ref::<SjtuCliError>();
-        assert!(matches!(
-            downcast,
-            Some(SjtuCliError::SubSessionStale("card_weixin"))
-        ));
+        assert!(matches!(downcast, Some(SjtuCliError::SessionExpired)));
     }
 
     #[test]
-    fn detect_stale_on_oauth_authorize_redirect() {
+    fn detect_session_expired_on_oauth_authorize_redirect() {
         let url = "https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=...";
         let r = detect_stale_or_unexpected(url, "<table></table>", 200);
         let err = r.unwrap_err();
         let downcast = err.downcast_ref::<SjtuCliError>();
-        assert!(matches!(
-            downcast,
-            Some(SjtuCliError::SubSessionStale("card_weixin"))
-        ));
+        assert!(matches!(downcast, Some(SjtuCliError::SessionExpired)));
     }
 
     #[test]
