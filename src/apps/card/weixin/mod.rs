@@ -178,10 +178,7 @@ mod tests {
         let m1 = server
             .mock("GET", "/start")
             .with_status(302)
-            .with_header(
-                "Location",
-                &format!("http://{host}/next?scope=a b&state=4"),
-            )
+            .with_header("Location", &format!("http://{host}/next?scope=a b&state=4"))
             .create_async()
             .await;
         let m2 = server

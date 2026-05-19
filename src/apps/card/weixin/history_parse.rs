@@ -5,7 +5,7 @@
 //! - thead 三列：消费日期·地点 / 交易额 / 卡余额
 //! - **tbody 缺 `<tr>` 包裹交易行**！直接是连续 3 个裸 `<td>`：
 //!   - td_a: `<td><strong>YYYY-MM-DD HH:MM:SS</strong><br>系统<br>商户</td>`
-//!           （转账行可能只到系统、无第三段）
+//!     （转账行可能只到系统、无第三段）
 //!   - td_b: 金额（充值正数包 `<font color="#FF0000">N</font>`）
 //!   - td_c: 卡余额
 //! - footer 用真 `<tr><td colspan=2>充值收入：</td><td>N&nbsp;元</td></tr>` + 消费支出
@@ -82,8 +82,8 @@ fn parse_one_record(
     let time_str = segments
         .first()
         .ok_or_else(|| anyhow!("time td 无文本片段"))?;
-    let dt_naive = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M:%S")
-        .context("交易时间解析")?;
+    let dt_naive =
+        NaiveDateTime::parse_from_str(time_str, "%Y-%m-%d %H:%M:%S").context("交易时间解析")?;
     let offset = FixedOffset::east_opt(BEIJING_OFFSET_SECS)
         .ok_or_else(|| anyhow!("FixedOffset +08:00 构造失败"))?;
     let dt: DateTime<FixedOffset> = offset
@@ -189,11 +189,7 @@ mod tests {
         let t2 = &v[2];
         assert_eq!(t2.amount, Decimal::from(20));
         assert_eq!(t2.system.as_deref(), Some("银行转账"));
-        assert!(
-            t2.merchant.is_none(),
-            "转账行无商户：{:?}",
-            t2.merchant
-        );
+        assert!(t2.merchant.is_none(), "转账行无商户：{:?}", t2.merchant);
     }
 
     #[test]

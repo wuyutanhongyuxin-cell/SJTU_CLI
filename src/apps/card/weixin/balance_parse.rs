@@ -209,6 +209,9 @@ mod tests {
     fn extract_after_label_strips_nbsp() {
         // 真机 caption 文本通常是 "校园卡余额：\u{00A0}\u{00A0}\u{00A0}\u{00A0}3.88 元"
         let s = "校园卡余额：\u{00A0}\u{00A0}3.88 元";
-        assert_eq!(extract_after_label(s, "校园卡余额：").as_deref(), Some("3.88 元"));
+        assert_eq!(
+            extract_after_label(s, "校园卡余额：").as_deref(),
+            Some("3.88 元")
+        );
     }
 }
