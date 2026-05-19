@@ -551,12 +551,16 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
 - **OQ-WX-2** ✅ — 主 session 过期一律落 `jaccount.sjtu.edu.cn/jaccount/jalogin?...`，`oauth2/authorize` 是中间跳，最终肯定到 jalogin
 - **OQ-WX-3** ✅ — 真机 HTML 不是 `<th>` 行结构！实际是 `<ul class="info-list"><li class="info-card"><span>3.88</span> 元</li>` 风格 + `<table class="table-condensed">` 缺 `<tr>` 裸 td；fixture 已用真机 dump 脱敏版替换，selector 全部重写
 
-**真机 CP 待跑**（用户校园网内 + 已 jaccount login）：
-- [ ] CP-WX-BAL：`sjtu card balance --via weixin --yaml` 跑通，data.balance Decimal 字符串
-- [ ] CP-WX-AUTO：`sjtu card balance --yaml` 默认 auto → meta.via=weixin
-- [ ] CP-WX-HIST-7d：`sjtu card history --via weixin --yaml --days 7`
-- [ ] CP-WX-HIST-30d：`sjtu card history --via weixin --yaml --days 30`
-- [ ] CP-WX-STALE：手动改 session.json JAAuthCookie=INVALID → 跑 balance 应报 `主 jaccount session 已失效`
+**真机 CP 5/5 全过 2026-05-19**（Windows 11 + 用户主 jaccount session 直跑）：
+- [x] **CP-WX-BAL** ✅ 1009ms / `balance=3.88` / `trans_balance=0` / `lost=false` / `frozen=false` / `card_no_redacted=5475***` / `meta.via=weixin` / `meta.source_hint=card.sjtu.edu.cn`
+- [x] **CP-WX-AUTO** ✅ 525ms / 无 `--via` 默认 → `meta.via=weixin`（select_via 在无 OAuth2 token 时正确路由）
+- [x] **CP-WX-HIST-7d** ✅ 502ms / `begin=2026-05-13` / `end=2026-05-19` / `returned=17` / `total_amount=-13.20` / `card_no_redacted=<weixin>`（history endpoint 不返卡号，转换器用占位字符串）
+- [x] **CP-WX-HIST-30d** ✅ 410ms / `begin=2026-04-20` / `end=2026-05-19` / `returned=17` / `total_amount=-13.20`（**与 7d 完全一致 17 笔** — 见 OQ-WX-1 修订）
+- [x] **CP-WX-STALE** ✅ 手改 JAAuthCookie=INVALIDINVALID_FORCED_STALE → `error: 登录已过期。请重新运行 \`sjtu login\`。` + `exit 1`，session 已恢复完成
+
+**OQ-WX-1 修订**：服务端**接受** `startdate=YYYY-MM-DD&enddate=YYYY-MM-DD` 字段名（不返 4xx / 不报错），但**不按窗口实际 filter** — 7d 和 30d 返回完全相同的 17 笔（最早 2026-04-24，距今 25 天，落 7d 窗口外但仍出现）。我方 query 字符串确实发出，server 端 default-paginate 行为，不阻塞功能；如需精确窗口需 client-side 二次 filter。
+
+**OQ-WX-4 新发现**：history 转账行（`系统=银行转账 amount=20`）无第三段商户文本，Task 8 修复后正确返 `merchant=None`（不出现该字段），符合 schema。
 
 **新发现 follow-up**：
 - balance_parse.rs (206 行) / history_parse.rs (244 行) 略超 200 行硬限（主体是 tests + module doc），下次"清理一下"按 `_parse_tests.rs` 兄弟文件拆
