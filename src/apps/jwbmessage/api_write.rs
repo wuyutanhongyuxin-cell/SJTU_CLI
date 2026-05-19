@@ -64,9 +64,24 @@ pub(super) async fn read_all(
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    // 按字符数（非字节）裁剪，避免切到 UTF-8 多字节边界 panic（中文错误页常见）
+    if s.chars().count() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        let mut out: String = s.chars().take(max).collect();
+        out.push_str("...");
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_handles_utf8_multibyte_boundary() {
+        let s = "你好世界abc";
+        assert_eq!(truncate(s, 3), "你好世...");
+        assert!(!truncate(s, 100).contains("..."));
     }
 }
