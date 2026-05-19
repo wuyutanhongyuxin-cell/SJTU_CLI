@@ -14,6 +14,11 @@ pub mod client;
 pub mod history_parse;
 pub mod money;
 
+#[cfg(test)]
+mod balance_parse_tests;
+#[cfg(test)]
+mod history_parse_tests;
+
 use anyhow::{anyhow, Result};
 use chrono::NaiveDate;
 
