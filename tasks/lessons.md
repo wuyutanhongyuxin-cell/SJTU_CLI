@@ -15,6 +15,50 @@
 
 ---
 
+## 2026-05-19 — reqwest 严格 URL parser × OAuth2 scope 空格 + cookie jar domain 分桶 + 主 session 被 `_` 标永久忽略（T4 weixin D12 三层 bug）
+
+**触发情境**：T4 weixin path 上线后真机 4xx + parse 全 fail。surgical experiment 4 轮才锁定 3 层独立 bug 同时存在 + 1 处 parser 实站漂移。
+
+**错误模式**：
+
+1. **L3 reqwest URL parser 拒裸空格 Location**
+   - SJTU PHP OAuth2 endpoint 302 Location 含 `scope=profile connect_wechat ...`（4 个空格分隔的 scope，未做 percent-encoding，违反 RFC 3986）
+   - reqwest 严格 URL parser 拒整条 Location → redirect middleware **callback 零调用** + 直接把 302 当 final response 返
+   - 浏览器宽容自动 fixup 把空格转 `%20`，让你以为 endpoint 正常
+   - 判断信号：`Policy::custom` callback 一次都不触发 + 收到 3xx final response
+
+2. **L2 reqwest cookie jar add_cookie_str 按 base URL domain matching**
+   - 写法 `for c in &session.cookies { jar.add_cookie_str(&cookie_str, &weixin_url); }` 把所有 cookie 都用单一 base URL 注入
+   - jar 按 RFC 6265 `host-matches` 检查：cookie domain `jaccount.sjtu.edu.cn` ≠ base URL `weixin.sjtu.edu.cn` → 静默拒绝
+   - 结果：表面 jar 注入 6 cookie，实际只生效 weixin 域那 1-2 个；jaccount 域 JAAuthCookie 全丢
+   - 没 error / 没 warn / 没 panic — silent rejection 是 reqwest cookie jar 默认行为
+
+3. **L1 主 session 被 `_` 标永久忽略**
+   - 函数签名 `fn fetch_balance(_main_session: &Session)` 表示"参数收下但不用"
+   - 实际函数体里又调 `with_cas_refresh("card_weixin", ...)` 试图从 sub_session 拿 cookie — 但 weixin path 根本没有 sub_session 概念（直接走主 jaccount session）
+   - Rust 编译器不报错（`_` 前缀就是告诉它别报 unused）— 100% 业务逻辑漏
+
+4. **P1 parser 基于猜测的 HTML 结构**
+   - plan 阶段假设 `<table><tr><th>字段名</th><td>值</td></tr>`
+   - 实站：`<ul class="info-list">` + `<table class="table-condensed">` 缺 `<tr>` 包裹（连续裸 td）+ footer 用 colspan tr
+   - 不真机 dump 永远不知道结构
+
+**正确做法**：
+
+1. 调试 reqwest redirect 行为：先 `Policy::none()` + 自己 GET + 把第一跳完整 response headers + body dump 出来，肉眼看 Location 真实形态是否符合 RFC 3986
+2. cookie jar 用 `add_cookie_str(&str, &url)` 时 url 必须**跟 cookie domain 一致**，按 cookie 自身 domain 分桶；不存在"一个 base URL 注入所有 cookie"的合理写法
+3. 函数参数 `_` 前缀是显式"这个参数永远不用"的契约 — 不要在函数体里又试图用它的同名值（即使是从别处拿）。要么改为 `main_session` 接受用法，要么真不用
+4. parser fixture 必须用真机 dump 脱敏版而非 plan 阶段猜测；fixture 行数控制 30-60 行（节略多余 wrapper，保留 2-3 条样本）
+
+**规则**：
+
+- **R1**：调试 reqwest redirect 异常先 `Policy::none()` dump 第一跳 headers + body，验 Location 是否合 RFC 3986 严格语法
+- **R2**：reqwest cookie jar 注入必须按 cookie 自身 domain 分桶（`for c in cookies { let url = format!("https://{host}/", host=c.domain.trim_start_matches('.')); jar.add_cookie_str(&set_str, &url); }`），不存在"一个 base URL 灌所有 cookie"的写法
+- **R3**：`_` 前缀参数表示"参数收下但不用" — 函数体里再触碰这参数是契约违反；不要 `_main_session` + `with_cas_refresh` 这种隐式 fallback 链
+- **R4**：实站 HTML 必须真机 dump 一次再写 selector — `<table>` 的 row 结构 / `<th>` 占位 / class 命名都不能假设。dump 完按 ~30-60 行节略 wrapper 当 fixture，selector 在 fixture 上 TDD
+
+---
+
 ## 2026-05-16 — CAS retry 层 follow-up（T9 staleness 盲区根治 + T8 真机 CP-CR-1..3）
 
 **触发情境**：T9 真机暴露的"jwc sub_session 客户端 fresh 但 ZF 服务端 timeout"盲区（lessons.md 2026-05-15 段 §4）。临时修复（手删 sub_sessions/jwc.json）不可持续，作 follow-up 系统化封装 retry 层。8-task TDD subagent-driven 实装（spec → plan → T1-T7 implementer + 两阶段 review + final review → T8 真机）。

@@ -517,3 +517,47 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
 - OQ-WX-1：query 参数名 `startdate`/`enddate` 服务端实际接受？或其他名（`begin`/`end`）？
 - OQ-WX-2：stale 形态 — redirect URL 是 `jaccount/jalogin` 还是 `oauth2/authorize`？
 - OQ-WX-3：HTML selector（`<th>卡账号</th>` 锚点）稳定性 — 阶段性复测，发现改版及时更新 fixture
+
+---
+
+### 2026-05-19 T4 weixin path D12 三层 bug 修复 + parser 实站重写 ✅
+
+5-18 weixin path 上线后真机 4xx/parse fail 全跑不通。D12 surgical 4 轮锁定 3 层 bug + 1 处 parser 漂移：
+
+| 层 | 文件:行 | 问题 |
+|---|---|---|
+| **L1** | `weixin/mod.rs:32` | `fetch_balance(_main_session)` 把主 session 用 `_` 标永久忽略 → 误走 `with_cas_refresh("card_weixin", ...)` 取 sub_session（weixin path 无 sub_session 概念） |
+| **L2** | `weixin/client.rs:39-42` | `jar.add_cookie_str(_, &https://weixin.sjtu.edu.cn/)` 对所有 cookie 都用 weixin URL 作 base → jaccount 域 cookie 因 RFC 6265 domain mismatch 被 jar 静默拒绝 |
+| **L3** | reqwest redirect 中间件 | SJTU PHP 后端 302 Location 含 `scope=profile connect_wechat ...`（4 个裸空格）→ reqwest 严格 URL parser 拒整条 Location → 不调 redirect callback、当 final response 返 |
+| **P1** | `weixin/{balance,history}_parse.rs` | 基于 plan 阶段猜测的 `<th>字段名</th><td>值</td>` 结构，与实站 `<table class="table table-condensed">` + tbody 缺 `<tr>` + colspan footer 完全不符 |
+
+**D12 修复时间线（10 commits）**：
+
+1. `a72bae7 test(t4)` weixin fixture 用真机 dump 脱敏 HTML 替换 plan 阶段猜测版 (D12-T1)
+2. `0b3692c feat(t4)` sanitize_location 补 OAuth2 scope 空格 percent-encode (D12-L3)
+3. `d9cf027 feat(t4)` weixin_follow 手卷 redirect chain 绕过 reqwest URL parser (D12-L3)
+4. `17445f3 fix(t4)` build_weixin_client 按 cookie domain 分桶注入 jar + Policy::none() (D12-L2+L3)
+5. `7f39f55 fix(t4)` fetch_balance 改主 session 直透传 + stale 改 SessionExpired (D12-L1)
+6. `95851e1 fix(t4)` fetch_history/fetch_history_summary 改主 session 直透传 (D12-L1)
+7. `3b0a92c fix(t4)` balance_parse selector 按真机 HTML 重写 (D12-P1)
+8. `330ac41 fix(t4)` history_parse selector 按真机 HTML 重写 (D12-P1)
+9. `744ef87 style(t4)` cargo fmt + clippy doc-list 缩进修复 (D12-T9)
+10. `docs(t4)` 本 commit — todo/lessons/CLAUDE 同步
+
+**Stale 信号语义变更**：weixin path 直接走主 jaccount session，**不再发** `SubSessionStale("card_weixin")`（那是 cas retry 层信号，跟 sub_session 体系绑定）。主 session 过期落地 jaccount 域，改抛 `SjtuCliError::SessionExpired`，提示 `sjtu login` 重新扫码（CP-WX-STALE 真机验）。
+
+**OQ-WX 回填**：
+- **OQ-WX-1** ✅ — D12-T1 dump 显示 history URL 用 `startdate=YYYY-MM-DD&enddate=YYYY-MM-DD` 服务端正常返 HTML
+- **OQ-WX-2** ✅ — 主 session 过期一律落 `jaccount.sjtu.edu.cn/jaccount/jalogin?...`，`oauth2/authorize` 是中间跳，最终肯定到 jalogin
+- **OQ-WX-3** ✅ — 真机 HTML 不是 `<th>` 行结构！实际是 `<ul class="info-list"><li class="info-card"><span>3.88</span> 元</li>` 风格 + `<table class="table-condensed">` 缺 `<tr>` 裸 td；fixture 已用真机 dump 脱敏版替换，selector 全部重写
+
+**真机 CP 待跑**（用户校园网内 + 已 jaccount login）：
+- [ ] CP-WX-BAL：`sjtu card balance --via weixin --yaml` 跑通，data.balance Decimal 字符串
+- [ ] CP-WX-AUTO：`sjtu card balance --yaml` 默认 auto → meta.via=weixin
+- [ ] CP-WX-HIST-7d：`sjtu card history --via weixin --yaml --days 7`
+- [ ] CP-WX-HIST-30d：`sjtu card history --via weixin --yaml --days 30`
+- [ ] CP-WX-STALE：手动改 session.json JAAuthCookie=INVALID → 跑 balance 应报 `主 jaccount session 已失效`
+
+**新发现 follow-up**：
+- balance_parse.rs (206 行) / history_parse.rs (244 行) 略超 200 行硬限（主体是 tests + module doc），下次"清理一下"按 `_parse_tests.rs` 兄弟文件拆
+- weixin path 仍未接 OAuth2 retry 层（与 OAuth2 path 不共享 staleness 函数）— 由 `SessionExpired` + `sjtu login` 二阶段流程兜底
