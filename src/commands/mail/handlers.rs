@@ -33,12 +33,14 @@ fn mail_meta() -> EnvelopeMeta {
     }
 }
 
-/// has_more 估算：拿满 limit 条 → 大概率还有；否则 None（不知道）。
+/// has_more 估算：拿满 limit 条 → 大概率还有（Some(true)）；不足 limit → 信息不足返 None
+/// 让 Envelope 省 `has_more` 字段。注：Zimbra `<SearchResponse more>` 属性才是真值，
+/// 当前 parser 暂未解析（plan-level OQ-M-1 follow-up）。
 fn estimate_has_more(count: usize, limit: u32) -> Option<bool> {
     if count as u32 >= limit {
         Some(true)
     } else {
-        Some(false)
+        None
     }
 }
 
