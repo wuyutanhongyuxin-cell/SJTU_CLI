@@ -54,6 +54,9 @@ comfy-table = "~7.1"
 # --- T4 weixin path HTML 解析 ---
 scraper = "0.21"
 
+# XML 解析：Zimbra SOAP envelope 用（apps/mail/）
+quick-xml = { version = "0.34", features = ["serialize"] }
+
 [dev-dependencies]
 mockito = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util", "fs", "io-util", "net"] }
