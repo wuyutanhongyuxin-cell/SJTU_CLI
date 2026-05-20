@@ -16,6 +16,7 @@ use crate::output::OutputFormat;
 #[derive(Debug, Subcommand)]
 pub enum MailSub {
     /// 列出收件箱邮件（默认 50 条）。支持 --unread 只看未读 / --search 关键字搜索。
+    #[command(alias = "ls")]
     List {
         /// 返回条数（默认 50）。
         #[arg(long, default_value_t = mail_cmds::DEFAULT_LIMIT)]

@@ -11,10 +11,15 @@ use crate::apps::mail::{Address, Mail, MailFull};
 /// `sjtu mail list` 响应体：收件箱邮件列表。
 #[derive(Debug, Serialize)]
 pub struct MailListData {
+    /// Zimbra query 字符串（如 `in:inbox` / `is:unread` / `in:inbox "kw"`），Agent 看本次用了什么。
+    pub query: String,
     /// 本次返回条数。
     pub count: usize,
     /// 分页偏移（用于 Agent 下一页）。
     pub offset: u32,
+    /// 是否还有更多（count == limit 时为 true，提示下一页）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_more: Option<bool>,
     /// 邮件行列表。
     pub items: Vec<MailListRow>,
 }
@@ -57,6 +62,8 @@ pub struct MailReadData {
     pub cc_addresses: Vec<Address>,
     /// 时间戳（毫秒 unix epoch）。
     pub date_ms: Option<i64>,
+    /// 是否未读（meta.unread 透传；read=0 不改原状态）。
+    pub unread: bool,
     /// 解析后的纯文本 body。HTML-only 邮件则为 None，见 `body_warning`。
     pub body_plain: Option<String>,
     /// HTML-only 邮件时填提示文字；有 plain text 时为 None。
@@ -95,6 +102,7 @@ impl From<MailFull> for MailReadData {
             to_addresses: f.to_addresses,
             cc_addresses: f.cc_addresses,
             date_ms: f.meta.date_ms,
+            unread: f.meta.unread,
             body_plain: f.body_plain,
             body_warning,
         }

@@ -33,13 +33,25 @@ fn mail_meta() -> EnvelopeMeta {
     }
 }
 
+/// has_more 估算：拿满 limit 条 → 大概率还有；否则 None（不知道）。
+fn estimate_has_more(count: usize, limit: u32) -> Option<bool> {
+    if count as u32 >= limit {
+        Some(true)
+    } else {
+        Some(false)
+    }
+}
+
 /// `sjtu mail list`：inbox 列表（分页）。
 pub async fn cmd_mails(limit: u32, offset: u32, fmt: Option<OutputFormat>) -> Result<()> {
     let client = make_client().await?;
     let items = client.inbox(limit, offset).await?;
+    let count = items.len();
     let data = MailListData {
-        count: items.len(),
+        query: "in:inbox".into(),
+        count,
         offset,
+        has_more: estimate_has_more(count, limit),
         items: items.into_iter().map(|m| m.into()).collect(),
     };
     render(Envelope::ok_with_meta(data, mail_meta()), fmt)
@@ -49,9 +61,12 @@ pub async fn cmd_mails(limit: u32, offset: u32, fmt: Option<OutputFormat>) -> Re
 pub async fn cmd_mails_unread(limit: u32, offset: u32, fmt: Option<OutputFormat>) -> Result<()> {
     let client = make_client().await?;
     let items = client.unread(limit, offset).await?;
+    let count = items.len();
     let data = MailListData {
-        count: items.len(),
+        query: "is:unread".into(),
+        count,
         offset,
+        has_more: estimate_has_more(count, limit),
         items: items.into_iter().map(|m| m.into()).collect(),
     };
     render(Envelope::ok_with_meta(data, mail_meta()), fmt)
@@ -71,9 +86,12 @@ pub async fn cmd_mails_search(
     }
     let client = make_client().await?;
     let items = client.keyword(keyword, limit, offset).await?;
+    let count = items.len();
     let data = MailListData {
-        count: items.len(),
+        query: format!(r#"in:inbox "{keyword}""#),
+        count,
         offset,
+        has_more: estimate_has_more(count, limit),
         items: items.into_iter().map(|m| m.into()).collect(),
     };
     render(Envelope::ok_with_meta(data, mail_meta()), fmt)
