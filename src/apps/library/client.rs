@@ -111,11 +111,9 @@ impl Client {
         let r: SessionIdResp =
             fetch_json(&self.http, &self.throttle, &url, "/getSessionId").await?;
         if r.result != 1 {
-            return Err(SjtuCliError::UpstreamError(format!(
-                "getSessionId result={}",
-                r.result
-            ))
-            .into());
+            return Err(
+                SjtuCliError::UpstreamError(format!("getSessionId result={}", r.result)).into(),
+            );
         }
         r.data
             .ok_or_else(|| SjtuCliError::UpstreamError("getSessionId data 为空".into()).into())
@@ -127,9 +125,7 @@ impl Client {
         let url = format!("{BASE}{GET_INFO_URL}?session={sid}");
         let r: GetInfoResp = fetch_json(&self.http, &self.throttle, &url, "/getInfo").await?;
         if r.result != 1 {
-            return Err(
-                SjtuCliError::UpstreamError(format!("getInfo result={}", r.result)).into(),
-            );
+            return Err(SjtuCliError::UpstreamError(format!("getInfo result={}", r.result)).into());
         }
         Ok(r.borrow_array)
     }

@@ -12,13 +12,14 @@
 
 use std::path::PathBuf;
 
-use crate::apps::library::models::{
-    FineInfoResp, GetInfoResp, HistoryBorrowResp, SessionIdResp,
-};
+use crate::apps::library::models::{FineInfoResp, GetInfoResp, HistoryBorrowResp, SessionIdResp};
 
 fn fixture_path(name: &str) -> PathBuf {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    PathBuf::from(manifest).join("tests").join("fixtures").join(name)
+    PathBuf::from(manifest)
+        .join("tests")
+        .join("fixtures")
+        .join(name)
 }
 
 #[test]
@@ -50,7 +51,10 @@ fn fixture_history_parses_two_rows() {
     let r: HistoryBorrowResp = serde_json::from_str(&s).unwrap();
     assert_eq!(r.result, 1);
     assert_eq!(r.history_array.len(), 2);
-    assert_eq!(r.history_array[0].return_date.as_deref(), Some("2025-11-01"));
+    assert_eq!(
+        r.history_array[0].return_date.as_deref(),
+        Some("2025-11-01")
+    );
 }
 
 #[test]
@@ -81,7 +85,10 @@ async fn mock_session_then_loans() {
         .create_async()
         .await;
     let _m_info = server
-        .mock("GET", mockito::Matcher::Regex("/wechat/sjtuAuth/getInfo.*".into()))
+        .mock(
+            "GET",
+            mockito::Matcher::Regex("/wechat/sjtuAuth/getInfo.*".into()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"result":1,"borrowArray":[{"title":"测试书"}],"can_renew":false}"#)
@@ -99,8 +106,9 @@ async fn mock_session_then_loans() {
     let throttle = Arc::new(Throttle::new());
 
     let sid_url = format!("{}/wechat/sjtuAuth/getSessionId", server.url());
-    let sid_resp: SessionIdResp =
-        fetch_json(&http, &throttle, &sid_url, "/getSessionId").await.unwrap();
+    let sid_resp: SessionIdResp = fetch_json(&http, &throttle, &sid_url, "/getSessionId")
+        .await
+        .unwrap();
     assert_eq!(sid_resp.result, 1);
 
     let info_url = format!(
@@ -108,7 +116,9 @@ async fn mock_session_then_loans() {
         server.url(),
         sid_resp.data.unwrap()
     );
-    let info: GetInfoResp = fetch_json(&http, &throttle, &info_url, "/getInfo").await.unwrap();
+    let info: GetInfoResp = fetch_json(&http, &throttle, &info_url, "/getInfo")
+        .await
+        .unwrap();
     assert_eq!(info.borrow_array.len(), 1);
     assert_eq!(info.borrow_array[0].title.as_deref(), Some("测试书"));
 }
