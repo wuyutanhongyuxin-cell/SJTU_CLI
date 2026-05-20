@@ -1,0 +1,24 @@
+{
+  "result": 1,
+  "borrowArray": [
+    {
+      "title": "Rust 编程之道",
+      "isbn": "9787121327971",
+      "barcode": "B1234567",
+      "borrowDate": "2026-04-15",
+      "dueDate": "2026-06-15",
+      "renewTimes": 0,
+      "location": "包玉刚图书馆"
+    },
+    {
+      "title": "深入理解计算机系统",
+      "isbn": "9787111321330",
+      "barcode": "B2345678",
+      "borrowDate": "2026-05-01",
+      "dueDate": "2026-07-01",
+      "renewTimes": 1,
+      "location": "主馆"
+    }
+  ],
+  "can_renew": true
+}

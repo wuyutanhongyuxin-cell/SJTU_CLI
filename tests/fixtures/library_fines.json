@@ -1,0 +1,13 @@
+{
+  "result": 1,
+  "fineArray": [
+    {
+      "title": "数据结构",
+      "isbn": "9787302464710",
+      "fineSum": "5.00",
+      "status": "待缴纳",
+      "fineDate": "2026-04-20",
+      "sequence": "F20260420001"
+    }
+  ]
+}

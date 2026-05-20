@@ -1,0 +1,22 @@
+{
+  "result": 1,
+  "historyArray": [
+    {
+      "title": "算法导论",
+      "isbn": "9787111407010",
+      "barcode": "B0001111",
+      "borrowDate": "2025-09-01",
+      "returnDate": "2025-11-01",
+      "location": "主馆"
+    },
+    {
+      "title": "TCP/IP 详解",
+      "isbn": "9787111075660",
+      "barcode": "B0002222",
+      "borrowDate": "2025-10-15",
+      "returnDate": "2025-12-15",
+      "location": "包玉刚图书馆"
+    }
+  ],
+  "can_renew": false
+}
