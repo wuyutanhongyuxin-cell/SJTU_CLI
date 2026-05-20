@@ -2,7 +2,7 @@
 
 上海交通大学 JAccount 命令行工具。扫码登录一次，终端里直接查水源 / 交我办消息 / Canvas 作业 DDL，输出支持 YAML / JSON，方便 AI Agent 调用。
 
-> **状态**：alpha — 已实装 8 大子系统（水源 / 交我办消息 / Canvas / 办事大厅 / 电费 / 教务 / 一卡通 / 邮箱）；命令面稳定，仍在持续接入新子系统。仅供个人合规使用。
+> **状态**：alpha — 已实装 9 大子系统（水源 / 交我办消息 / Canvas / 办事大厅 / 电费 / 教务 / 一卡通 / 图书馆 / 邮箱）；命令面稳定，仍在持续接入新子系统。仅供个人合规使用。
 
 ## 合规声明
 
@@ -131,6 +131,19 @@ sjtu card history --days 30 --yaml             # 30 天，YAML 输出（auto 路
 - token 自动续期：access_token TTL 30 分钟，refresh_token 透明 refresh，用户无感
 - 金额一律 `Decimal` 序列化为字符串（避 JSON f64 精度坑）；total_amount 链式累加精确
 - 红线：充值 / 挂失 / 解挂 / 改密码 / 改照片 / 拾卡 等写端点 CLI **永久不实装**
+
+邮箱（mail.sjtu.edu.cn Zimbra，jaccount cookie 透明跳 SSO + ZM_AUTH_TOKEN + `csrf=1:1` flag 强制 `<csrfToken>` envelope）：
+
+```bash
+sjtu mail list --limit 50                      # inbox 最近 50 封预览
+sjtu mail ls --unread --limit 20               # 仅未读，别名 ls
+sjtu mail list --search "通知" --limit 10      # 关键字搜索（自动限定 in:inbox）
+sjtu mail read <id> --yaml                     # 读单封正文（text/plain，**不**标已读）
+```
+
+- 红线：**永久不实装** 发信 / 存草稿 / 标已读 / 删邮件 / 移动 / 移除标签 / 任何 `*Action` SOAP 类（编译期就找不到入口）
+- 单封正文编译期注入 `read="0" html="0" max="50000"`：永不触发已读状态变更、永不取 HTML body、限 50KB 防大附件
+- 正文不缓存到磁盘；SOAP 走 1.1 namespace + Content-Type `text/xml; charset=utf-8`
 
 ## 技术栈
 
