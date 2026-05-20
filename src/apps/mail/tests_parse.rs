@@ -5,11 +5,9 @@
 
 use mockito::Server;
 
-use super::http::send_soap_request;
 // R2 拆分：parse_* 函数在 parser.rs 而非 soap.rs
 use super::parser::{parse_get_msg_response, parse_search_response};
 use super::soap::{build_get_msg_envelope, build_search_envelope, is_auth_required_fault};
-use super::throttle::Throttle;
 use crate::error::SjtuCliError;
 
 /// 读取 tests/fixtures/ 下的文件内容，panic on missing
@@ -32,6 +30,7 @@ fn parse_search_inbox_returns_three_mails() {
     );
     assert_eq!(mails[0].folder_id.as_deref(), Some("2"));
     assert!(!mails[1].unread, "fixture #2 should have no u flag");
+    assert_eq!(mails[2].id, "114");
 }
 
 #[test]
@@ -61,7 +60,8 @@ fn parse_get_msg_extracts_body_plain() {
     let body = full.body_plain.expect("body_plain 应解析出来");
     assert!(body.contains("Hello World!"));
     assert!(body.contains("Line 3."));
-    // 收件人列表
+    // 发件人 + 收件人列表（验 t="f" 不被误塞进 to_addresses）
+    assert_eq!(full.meta.from_address.as_deref(), Some("from@example.com"));
     assert_eq!(full.to_addresses.len(), 1);
     assert_eq!(full.to_addresses[0].address, "me@sjtu.edu.cn");
 }
@@ -85,7 +85,6 @@ async fn mockito_e2e_search_returns_mails() {
         .await;
 
     let http = reqwest::Client::builder().no_proxy().build().unwrap();
-    let throttle = Throttle::new();
     let env = build_search_envelope("DUMMY_TOKEN", "in:inbox", 50, 0);
 
     // 注入 mockito 假 URL
@@ -100,8 +99,6 @@ async fn mockito_e2e_search_returns_mails() {
     let body = resp.text().await.unwrap();
     let mails = parse_search_response(&body).expect("parse OK");
     assert_eq!(mails.len(), 3);
-    // throttle 仅用于编译期确认导入可用
-    let _ = throttle;
 }
 
 #[tokio::test]
@@ -135,26 +132,10 @@ async fn mockito_e2e_auth_required_maps_to_session_expired() {
     } else {
         SjtuCliError::UpstreamError("unexpected".into())
     };
-    matches!(mapped, SjtuCliError::SessionExpired);
+    assert!(matches!(mapped, SjtuCliError::SessionExpired));
 }
 
-// send_soap_request 函数内置 SOAP_URL 写死指向 mail.sjtu.edu.cn。要测它得改成可注入 URL，
-// 此处选择 *不* 改 production 函数签名（保持 production 简洁），仅在 mockito e2e 里 inline
-// 重写发包流程，把 send_soap_request 的逻辑（content-type / referer / fault detection）测了。
-#[tokio::test]
-async fn mockito_e2e_send_soap_via_inline_post_succeeds() {
-    let mut server = Server::new_async().await;
-    let fixture = load("mail_search_inbox.xml");
-    let _m = server
-        .mock("POST", "/service/soap")
-        .with_status(200)
-        .with_header("content-type", "text/xml;charset=utf-8")
-        .with_body(&fixture)
-        .create_async()
-        .await;
-    let throttle = Throttle::new();
-    // 通过自己拼链路验证 send_soap_request 内部的逻辑（throttle + fault check）；
-    // production send_soap_request 因 URL 写死所以不能直接复用 server.url()，单独验。
-    let _ = send_soap_request; // 仅引用以确保编译期挂钩
-    let _ = throttle;
-}
+// 说明：production send_soap_request 内置 SOAP_URL 写死指向 mail.sjtu.edu.cn，
+// 真机时不能 inject mockito URL。我们选择 *不* 改 production 函数签名（保持 prod 简洁），
+// 而是在 mockito e2e（mockito_e2e_search_returns_mails / _auth_required_*）里 inline 重
+// 写发包，把 send_soap_request 内的逻辑（content-type / fault detection）覆盖了。
