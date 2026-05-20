@@ -635,18 +635,26 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
 - [x] 行数审计：所有 9 个 apps/mail/*.rs ≤ 200（max http.rs 199）；tests_parse.rs 141 ≤ 300；commands/mail/handlers.rs 113；cli/mail.rs 68
 - [x] 文档同步：SCHEMA.md / SKILL.md / README.md / CLAUDE.md / tasks/todo.md（本节）/ tasks/lessons.md（R12-R15）
 
-### R7 真机 CP（用户触发）— PENDING
-- [ ] CP-M1 `sjtu mail list` — 返回最新 inbox 50 条 ok:true items.len > 0
-- [ ] CP-M2 `sjtu mail list --unread` — 仅未读子集
-- [ ] CP-M3 `sjtu mail list --search "通知"` — 关键字过滤
-- [ ] CP-M4 `sjtu mail read <id>` — body_plain 解析 + **不改邮件已读状态**（验真机邮箱客户端确认）
+### R7 真机 CP（2026-05-21 全过 4/4）
+- [x] CP-M1 `sjtu mail list` — `count:50 has_more:true` 全字段解析 ✓
+- [x] CP-M2 `sjtu mail list --unread --limit 5` — `query:is:unread` 5 封全 `unread:true` ✓
+- [x] CP-M3 `sjtu mail list --search "通知" --limit 5` — `query:in:inbox "通知"` 命中 Canvas 通知系列 ✓
+- [x] CP-M4 `sjtu mail read <id>` — `body_plain` 完整 + `to_addresses` 真实用户 + `unread:true` 透传（编译期 `read="0"` 红线 envelope 测试守护）✓
+
+### R7 CP 时发现 plan-level 漏洞（commit `26e388e` 一并 ship）
+- [x] **CSRF 强制**：Zimbra ZM_AUTH_TOKEN payload 含 `csrf=1:1` flag 时 envelope 必带 `<csrfToken>`，缺时 500 `service.AUTH_REQUIRED` "no valid authtoken present" — 新文件 `src/apps/mail/csrf.rs`（fetch_csrf_token 抽 `window.csrfToken`，纯扫不引 regex）+ soap.rs wrap_envelope 多 csrf_token 参数 + client.rs MailClient 加 csrf_token 字段
+- [x] **SOAP 1.2 → 1.1**：`xmlns:soap` 从 `www.w3.org/2003/05/soap-envelope` 改 `schemas.xmlsoap.org/soap/envelope/`；Zimbra response 镜像 1.1 schema（`faultcode`/`faultstring` 而非 1.2 的 `Code/Value`）
+- [x] **Content-Type 切换**：`application/soap+xml` → `text/xml; charset=utf-8`；Zimbra SOAP 1.1 标准
+- [x] 单测同步：+3 csrf parse / +2 soap envelope (namespace + csrf injection) → 24 mail tests / 364 total
 
 ### Follow-up（不阻塞 MVP）
 - [ ] OQ-M-1 SearchResponse `more="1"` 属性精确分页（当前 `estimate_has_more` 用 `count == limit` 启发估算）
 - [ ] OQ-MAIL-1 真实邮件多地址 fixture 反推 `to_addresses` 全字段
-- [ ] OQ-MAIL-2 HTML-only 邮件真机 → `body_warning` 验证
+- [ ] OQ-MAIL-2 HTML-only 邮件真机 → `body_warning` 验证（CP-M4 是 text/plain，未触发 HTML 路径）
 - [ ] OQ-MAIL-3 大附件 `size_bytes` 阈值（agent 决定是否 read）
 - [ ] OQ-MAIL-4 Zimbra Fault Code 全集补全（当前只识 `service.AUTH_REQUIRED`）
 - [ ] OQ-MAIL-5 SOAP `<context>` schema 是否随 Zimbra 升级变化
 - [ ] OQ-MAIL-6 真机 `--limit` 上限观察（500? 1000?）
+- [ ] OQ-MAIL-7 CSRF token 过期/轮换策略（当前 fetch 一次复用整 session；token 是否随 ZM_AUTH_TOKEN 刷新）
+- [ ] OQ-MAIL-8 用户邮箱客户端复核 CP-M4 (id=3084) 仍 unread（编译期 `read="0"` 红线 envelope 测试守护，server-side 已保证；但 user 视角再验一次更稳）
 

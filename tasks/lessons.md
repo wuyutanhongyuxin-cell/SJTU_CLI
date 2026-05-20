@@ -1069,3 +1069,21 @@ format!(r#"<m id="{msg_id}" read="0" html="0" max="50000"/>"#)
 
 **反例**：implementer 严格跟 plan 字面 → 写出 7 子系统中唯一一个 `Result<Envelope<T>>` 签名的 mail handler → reviewer 通过 → 后续 mail 调用 dispatch 时签名不匹配 → 临 commit 才发现要全 refactor 或 wrap，纯浪费 token。
 
+
+### R16 — Zimbra ZM_AUTH_TOKEN `csrf=1:1` flag 强制 envelope `<csrfToken>` 同传
+
+**结论**：Zimbra 8+ 服务端开 CSRF 校验时，SSO 跟链拿到的 `ZM_AUTH_TOKEN` payload 含 `csrf=1:1` flag；此时 SOAP envelope `<context>` 必须**同时**带 `<authToken>` **和** `<csrfToken>`，缺 csrfToken 则 500 `service.AUTH_REQUIRED` `"no valid authtoken present"`。CSRF token 嵌在 `/zimbra/mail` HTML body 的 `window.csrfToken = "0_<hex>";` JS 字面里。
+
+**Why**：
+- 双 token 双重提交防御：cookie ZM_AUTH_TOKEN（自动随请求）+ envelope csrfToken（必须显式注入）= 攻击者即使能 CSRF 注入 cookie 也无法伪造 envelope。
+- ZM_AUTH_TOKEN payload 是 hex-encoded ASCII 字符串：`id=36:<UUID>;exp=13:<ms>;type=6:zimbra;u=1:a;tid=9:<int>;version=14:<v>;csrf=1:1;` —— `u=1:a` 是 zimbra **usage type**（"a" = normal auth），不是 anonymous username（曾经一度把 `u=1:a` 误读成 anonymous token）。
+- T8 plan brainstorming 阶段调研 fixture XML 没 csrf flag，编译期红线 envelope tests 跑通；**真机 R7 CP 才暴露**。这是典型"fixture 与生产服务端 schema/protocol 分支不同"。
+
+**How to apply**：
+1. Zimbra SOAP 路线**必须**实装 csrf token 抽取（即便 plan 未提）；不要假设服务端 csrf 关闭。
+2. CSRF token **抽 HTML 而非 cookie**：cookie 名是 `ZM_LOGIN_CSRF` 但 value 是另一份 token，与 envelope 期望的不同；envelope 需要的 csrf token 嵌在 `/zimbra/mail` JS 字面 `window.csrfToken = "..."`。
+3. **不引 regex 依赖**也能扫：`html.find("window.csrfToken")` → 找 `"` → 找下一个 `"` → 中间是 token。
+4. R7 CP 同时连带发现 SOAP 1.1（非 1.2）+ Content-Type `text/xml`（非 `application/soap+xml`）：**Zimbra 8/9/10 SOAP 接口都是 1.1**；这两项与 csrf 一起 ship。
+5. **CP 前置健康检查**——`status` 命令查的是本地 soft TTL，**不真验子系统鉴权**；如果 plan 真机 CP 全过依赖某个子系统鉴权，应该在 plan 里加"先跑一个最小请求 sanity check"步骤，让 plan-level bug 暴露在更早环节而非 CP commit 阶段。
+
+**反例**：implementer 看 plan 字面"R7 真机 CP-M1/M2/M3/M4"以为只是跑命令收输出，结果跑 CP-M1 就报 SessionExpired；4 层手动 trace（SSO 跟链 → ZM_AUTH_TOKEN extracted → token payload decode → SOAP POST 500 → fault body 全文 → /zimbra/mail HTML csrfToken JS 字面）才锁定 root cause。教训：CP 阶段的"用户触发 4 项"不是黑盒跑命令，是 plan-level 漏洞最容易暴露的时刻；implementer 应该备好 trace 工具链。
