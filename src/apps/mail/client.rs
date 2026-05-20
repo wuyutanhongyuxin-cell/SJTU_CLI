@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use reqwest::Client as HttpClient;
 
+use super::csrf::fetch_csrf_token;
 use super::http::{build_http_client, extract_zm_auth_token, send_soap_request, BASE};
 use super::models::{Mail, MailFull};
 use super::parser::{parse_get_msg_response, parse_search_response};
@@ -18,6 +19,8 @@ pub struct MailClient {
     http: HttpClient,
     throttle: Arc<Throttle>,
     auth_token: String,
+    /// Zimbra CSRF token（hop 6 HTML 抽）。envelope `<csrfToken>` 必填。
+    csrf_token: String,
     pub login: LoginMeta,
 }
 
@@ -57,6 +60,10 @@ impl MailClient {
             )
         })?;
 
+        // Zimbra 强制 CSRF：ZM_AUTH_TOKEN payload 含 csrf=1:1 时 envelope 必填
+        // <csrfToken>。token 嵌在 /zimbra/mail HTML 的 window.csrfToken。
+        let csrf_token = fetch_csrf_token(&http).await?;
+
         let prefix: String = auth_token.chars().take(8).collect();
         let auth_token_redacted = format!("{prefix}***");
 
@@ -64,6 +71,7 @@ impl MailClient {
             http,
             throttle,
             auth_token,
+            csrf_token,
             login: LoginMeta {
                 final_url,
                 auth_token_redacted,
@@ -73,7 +81,8 @@ impl MailClient {
 
     /// 通用 search：query 自由组合 `in:inbox` / `is:unread` / 关键字。
     pub async fn search(&self, query: &str, limit: u32, offset: u32) -> Result<Vec<Mail>> {
-        let envelope = build_search_envelope(&self.auth_token, query, limit, offset);
+        let envelope =
+            build_search_envelope(&self.auth_token, &self.csrf_token, query, limit, offset);
         let xml =
             send_soap_request(&self.http, &self.throttle, &envelope, "/SearchRequest").await?;
         parse_search_response(&xml)
@@ -98,7 +107,7 @@ impl MailClient {
 
     /// `mail <uid>` 命令：读单封邮件正文。**强制 read=0**（envelope builder 已注入）。
     pub async fn get_msg(&self, msg_id: &str) -> Result<MailFull> {
-        let envelope = build_get_msg_envelope(&self.auth_token, msg_id);
+        let envelope = build_get_msg_envelope(&self.auth_token, &self.csrf_token, msg_id);
         let xml =
             send_soap_request(&self.http, &self.throttle, &envelope, "/GetMsgRequest").await?;
         parse_get_msg_response(&xml)
@@ -107,7 +116,7 @@ impl MailClient {
     /// 调试 / 验证用：拿 folder 树。CLI 暂不直接暴露，但 schema 探索时有用。
     #[allow(dead_code)]
     pub async fn folders(&self) -> Result<String> {
-        let envelope = build_get_folder_envelope(&self.auth_token);
+        let envelope = build_get_folder_envelope(&self.auth_token, &self.csrf_token);
         send_soap_request(&self.http, &self.throttle, &envelope, "/GetFolderRequest").await
     }
 }

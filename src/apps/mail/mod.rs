@@ -10,6 +10,7 @@ pub use client::{LoginMeta, MailClient};
 pub use models::{Address, Mail, MailFull};
 
 mod client;
+mod csrf;
 mod extract;
 mod http;
 mod models;

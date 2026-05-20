@@ -85,7 +85,7 @@ async fn mockito_e2e_search_returns_mails() {
         .await;
 
     let http = reqwest::Client::builder().no_proxy().build().unwrap();
-    let env = build_search_envelope("DUMMY_TOKEN", "in:inbox", 50, 0);
+    let env = build_search_envelope("DUMMY_TOKEN", "DUMMY_CSRF", "in:inbox", 50, 0);
 
     // 注入 mockito 假 URL
     let url = format!("{}/service/soap", server.url());
@@ -120,7 +120,7 @@ async fn mockito_e2e_auth_required_maps_to_session_expired() {
     let resp = http
         .post(&url)
         .header("content-type", "application/soap+xml; charset=utf-8")
-        .body(build_get_msg_envelope("DUMMY", "999"))
+        .body(build_get_msg_envelope("DUMMY", "DUMMY_CSRF", "999"))
         .send()
         .await
         .unwrap();

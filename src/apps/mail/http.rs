@@ -105,7 +105,7 @@ pub(super) async fn send_soap_request(
 async fn send_once(http: &Client, envelope: &str, label: &str) -> Result<String> {
     let resp = http
         .post(SOAP_URL)
-        .header(CONTENT_TYPE, "application/soap+xml; charset=utf-8")
+        .header(CONTENT_TYPE, "text/xml; charset=utf-8")
         .header(USER_AGENT, UA)
         .header(REFERER, format!("{BASE}/zimbra/mail"))
         .body(envelope.to_string())
