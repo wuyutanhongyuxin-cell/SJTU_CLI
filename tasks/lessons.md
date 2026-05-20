@@ -15,6 +15,104 @@
 
 ---
 
+## 2026-05-20 — 本地 xray/v2ray 静默拦 lib.sjtu.edu.cn × my.sjtu app menu 是 L0 金矿 × chrome MCP 复用日常 profile
+
+**触发情境**：S3 phase 2 library 子系统 L0 调研。chrome navigate `weijieyue.lib.sjtu.edu.cn:8080/wechat/sjtu/nowlend` 持续 503，连续三轮误判（"服务器挂"→"需 referer"→"必须经 my.sjtu SSO"→"假设 Primo SAML federation"），同样 URL `curl --noproxy "*"` 一次 200 OK + 完整 17KB HTML。最终发现根因是本地代理。绕大半天才回归"SJTU 自建简单 Servlet"真相。
+
+**错误模式**：
+
+1. **本地 v2rayN/xray HTTP proxy 对部分 .edu.cn 子域静默拦截返 503**
+   - 监听 `127.0.0.1:10811` 走系统 HTTP proxy；流量先到 xray 才决策直连/出海
+   - 不在 xray bypass 名单的 SJTU 子域 → 代理拒转发 → 返 503 + `content-length:0` + `proxy-connection:close`
+   - 浏览器把这个 503 当 server 响应展示；判断信号是 response headers 里 `proxy-connection` 字段
+   - 2026-04-23 lessons 已记过 reqwest 层 `.no_proxy()`，本条补充 chrome 浏览器层 + 真机 curl 层
+
+2. **L0 直接从 SaaS deep link 入手，错过 SJTU 自家 app menu**
+   - 看到 `86sjt-primo.hosted.exlibrisgroup.com.cn` 立即假设走 Primo PDS/SAML federation
+   - 实际 `my.sjtu.edu.cn/api/task/me/apps` 一个 JSON 暴露全部 289 个 SJTU 服务的真实 URI（library 相关 25 条）
+   - 借阅入口是 SJTU 自建 `weijieyue.lib.sjtu.edu.cn:8080/wechat/sjtu/*`，跟 Primo SaaS 完全无关
+   - 浪费整一轮探不存在的 federation
+
+3. **chrome-devtools MCP 复用日常 chrome profile（不是干净 incognito）**
+   - 默认假设新干净实例，需手动登 jaccount
+   - 实际 navigate `my.sjtu.edu.cn` 直接显示用户身份 + 已登录态
+   - 走系统 HTTP proxy（注册表 ProxyEnable / ProxyServer / ProxyOverride）
+   - `document.cookie` **不含 HttpOnly cookie**（如 JSESSIONID），但浏览器仍带它发请求 — 易误判"没 cookie"
+
+**正确做法**：
+
+1. 真机侦察"双轨对照"：chrome navigate + `curl --noproxy "*"` 同 URL 并行。chrome 失败 + curl 通 = proxy 拦截；两者皆通 = server OK；两者皆挂 = server/网络真挂
+2. SJTU 子系统 L0 第一步**必走 my.sjtu app menu API**：
+   ```js
+   // 在 my.sjtu.edu.cn 已登录页面 evaluate_script:
+   fetch('/api/task/me/apps', {credentials:'include'})
+     .then(r => r.json())
+     .then(d => d.entities.filter(e => /<keyword>/.test(e.name||e.nameEn||e.uri)))
+   ```
+   秒拿所有相关子系统真实 URI（含图书馆/邮箱/canvas/elec/jwc 等全部），效率比盲探 HTML 高一个数量级
+3. chrome MCP 实例：① 默认带用户登录态直接可抓 ② 操作严格"只读访客"（不点 form/action 按钮，CLAUDE.md 硬红线）③ HttpOnly cookie 走 chrome MCP `Network.getCookies` DevTools API 而非 `document.cookie`
+4. v2rayN 加 SJTU 新子域 bypass（双层）：① `guiNConfig.json` 的 `SystemProxyExceptions` 字段追加 `*.<域>`（持久化）② Windows 注册表 `HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\ProxyOverride` 同步追加（立即生效）③ `InternetSetOption WININET_OPT_SETTINGS_CHANGED` 广播让 chrome 重读
+
+**规则**：
+
+- **R1**: 真机访问 SJTU 服务报 503 时，先 `curl --noproxy "*"` 对照。response headers `proxy-connection:close` + `content-length:0` 是本地代理拦截铁证（而非 server 故障）
+- **R2**: SJTU 新子系统 L0 第一步**必查 my.sjtu `/api/task/me/apps` JSON**，grep keyword 拿真入口 URI 后才动手探 — 别从 SaaS deep link 倒推
+- **R3**: chrome MCP **不是干净 incognito**，复用用户 profile：① 直接拿登录态（省登录）② 操作严格只读访客 ③ HttpOnly cookie 看不到要走 devtools `Network.getCookies` API
+- **R4**: 项目首次接 SJTU 新子域被本地代理拦时，按 `*.<域>` 双层加入直连白名单（v2rayN SystemProxyExceptions + Windows ProxyOverride），保留 lessons 复用
+
+---
+
+## 2026-05-20 — SJTU 图书馆借阅子系统认证模型备忘（library 实装 reference）
+
+**架构（项目内 reference，非错误）**：
+
+- **入口**：`http://weijieyue.lib.sjtu.edu.cn:8080/wechat/sjtu/{nowlend,history,fine}` —— **HTTP 8080 plain，非 HTTPS！**
+- **栈**：nginx/1.12.2 → Java Servlet（JSESSIONID `Path=/wechat/; HttpOnly`）→ DWR + jQuery + Mustache 渲染
+- **SSO 入口**：`/wechat/sjtuAuth/oAuthSJTU?platform=phone&returnUrl=<encoded>` → jaccount OAuth flow → 回 returnUrl 时 JSESSIONID 已设
+- **鉴权双层**：
+  1. JSESSIONID HttpOnly cookie 承载真正 session（reqwest cookie jar 自动管）
+  2. URL 参数 `session=<token>` 是**一次性 token**（每次 `GET /sjtuAuth/getSessionId` 返回新值，anti-replay 设计）
+- **读 API**（只读，本项目可用）：
+  - `GET /wechat/sjtuAuth/getPidFromSession` 检查登录态（result.result==1 即已登录）
+  - `GET /wechat/sjtuAuth/getSessionId` 拿一次性 token（每次调返回新值）
+  - `GET /wechat/sjtuAuth/getInfo?session=<sid>` 当前借阅 `{result, canRenew, borrowArray:[{isbn,bookName,author,loanDate,dueDate,currentFine,barcode,isReNew,isOverdue,isRecall}]}`
+  - `GET /wechat/sjtuAuth/getHistoryBorrow?session=<sid>` 历史借阅 `{result, historyArray:[...]}`
+  - `GET /wechat/sjtuAuth/getFineInfo?session=<sid>` 罚款 `{result, fineArray:[{isbn, status: '待缴纳'|'已支付'|'已免除', ...}]}`
+- **红线写 API（永不实装，read-only 项目）**：
+  - `/sjtuAuth/renew?session=&barcode=` 续借
+  - `/sjtuAuth/generageDoPayData` 缴费下单（注意原拼写 typo "generage"，是 SJTU 服务端错拼，不要改）
+  - `/sjtuAuth/updateCash` 更新缴费状态
+  - `/sjtuAuth/checkIsPaid` 检查已缴费
+
+**规则**：
+
+- **R5**: library 模块实装：先 GET `/sjtu/nowlend` 触发 SSO 取 JSESSIONID → 每次查询前先 GET `/sjtuAuth/getSessionId` 拿一次性 token → 作 URL 参数 `session=<sid>` 传目标 API
+- **R6**: reqwest 客户端**不要开 https_only**（library 入口是 HTTP 8080 plain text）；保留 cookie jar
+- **R7**: 不要"修正" `generage` 拼写 — 是 SJTU 服务端原始 endpoint 名，改了 404
+
+---
+
+## 2026-05-20 — T7 library 实装：模仿 weixin path 范式 + 三层接线 + fixture-only 验证局限
+
+**R8** library 子系统不接 CAS retry 层：weijieyue 走 jaccount OAuth dance（与 weixin path 同范式），
+没有 CAS sub-session 概念，stale 直接抛 `SessionExpired` 提示重 sjtu login，不需要 cas 子系统的
+SubSessionStale 信号。
+
+**R9** HTTP 8080 plain text 子系统照常用 reqwest：scheme `http://`、port 8080 可正常注入 cookie。
+reqwest 默认不强 HTTPS，无需 `.https_only(false)`。
+
+**R10** mockito 不能伪造跨域 redirect：测 `SessionExpired on jaccount landing` 无法在 mockito 里
+模拟（DNS 不解析 jaccount.sjtu.edu.cn）。两种兜底：① 单测层直接构造假 URL 走纯逻辑路径
+② L5 真机 CP 故意 logout 验证。
+
+**Why R8-R10：** 这些规则是 T7 plan 推导出的，写入 lessons 以便下一个 SJTU 子系统（图书馆 phase-2 /
+邮箱 / 其它）能直接复用，不必每次反推。
+
+**How to apply：** 新子系统接入时先决策：CAS（ASP 正方系）还是 jaccount OAuth（weijieyue / weixin
+/ Canvas）？走 OAuth 路径就照 weixin / library 模式，不接 cas_retry 层。
+
+---
+
 ## 2026-05-19 — reqwest 严格 URL parser × OAuth2 scope 空格 + cookie jar domain 分桶 + 主 session 被 `_` 标永久忽略（T4 weixin D12 三层 bug）
 
 **触发情境**：T4 weixin path 上线后真机 4xx + parse 全 fail。surgical experiment 4 轮才锁定 3 层独立 bug 同时存在 + 1 处 parser 实站漂移。

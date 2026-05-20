@@ -33,8 +33,7 @@ pub(super) struct GetInfoResp {
     pub result: i32,
     #[serde(default, rename = "borrowArray")]
     pub borrow_array: Vec<Loan>,
-    /// 是否可续借（全局 flag，影响 `Loan` 渲染）。L0 推测，L5 真机验。
-    /// L5 真机回填字段，预留 getInfo can_renew 渲染。
+    /// 是否可续借（全局 flag，影响 `Loan` 渲染）。L0 推测，L5 待回填。
     #[serde(default)]
     #[allow(dead_code)]
     pub can_renew: Option<bool>,
@@ -47,7 +46,7 @@ pub(super) struct HistoryBorrowResp {
     pub result: i32,
     #[serde(default, rename = "historyArray")]
     pub history_array: Vec<HistoryRow>,
-    /// L5 真机回填字段，预留 history can_renew 渲染。
+    /// 是否可续借（history 渲染保留字段）。L0 推测，L5 待回填。
     #[serde(default)]
     #[allow(dead_code)]
     pub can_renew: Option<bool>,

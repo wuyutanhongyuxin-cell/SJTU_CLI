@@ -24,6 +24,7 @@
 | `sjtu canvas-video list\|download\|clear-cache` | Canvas 课堂视频（v.sjtu.edu.cn）LTI 1.3 鉴权 + 单讲 / 批量 mp4 / `--audio-only` 抽 m4a |
 | `sjtu services pending` | 办事大厅（my.sjtu.edu.cn）待办 / 已办 / 抄送 |
 | `sjtu elec balance\|usage\|history` | 宿舍电费（elec.sjtu.edu.cn）—— 金额 `rust_decimal::Decimal` 硬约束 |
+| `sjtu library loans\|history\|fines` | 图书馆借阅（weijieyue.lib.sjtu.edu.cn:8080）—— **只读**，永不实装续借 / 缴费 |
 | `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next\|calendar` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA + 排名双轨 (`gpapmParsed` / `xjfpmParsed`) / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天） / RFC 5545 iCal 导出（课表 + 考试 + 校历，FNV-1a UID 幂等）；`--grid` comfy-table 表格输出 |
 | `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（默认 4 年 × 3 学期 N309131 循环，600ms throttle，fail-soft：失败学期落 `failed[]`，exit 始终 0；真机 12 学期 ~56s） |
 | `sjtu card auth\|balance\|history` | 一卡通（api.sjtu.edu.cn）—— OAuth2 Authorization Code，余额 + 消费记录只读；金额 `rust_decimal::Decimal` 硬约束；身份字段默认抹掉，`--with-identity` 才出 |

@@ -223,6 +223,25 @@ sjtu elec history --days 7
 
 ---
 
+## 图书馆借阅（library）
+
+> 后端：`weijieyue.lib.sjtu.edu.cn:8080`（HTTP 8080 plain text），jaccount OAuth dance，主 session 直透传。
+
+```bash
+# 当前借阅
+sjtu library loans
+
+# 历史借阅
+sjtu library history
+
+# 罚款（仅显示，不缴费）
+sjtu library fines
+```
+
+均 `--yaml` / `--json` 可切换输出格式，meta.via 永远是 `weijieyue`。
+
+---
+
 ## 一卡通命令（card）
 
 > 后端：`api.sjtu.edu.cn/v1/me/card*`，OAuth2 Authorization Code，token 落 `~/.sjtu-cli/sub_sessions/card_oauth.json`。

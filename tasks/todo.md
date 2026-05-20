@@ -565,3 +565,17 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
 **新发现 follow-up**：
 - balance_parse.rs (206 行) / history_parse.rs (244 行) 略超 200 行硬限（主体是 tests + module doc），下次"清理一下"按 `_parse_tests.rs` 兄弟文件拆
 - weixin path 仍未接 OAuth2 retry 层（与 OAuth2 path 不共享 staleness 函数）— 由 `SessionExpired` + `sjtu login` 二阶段流程兜底
+
+## T7 图书馆借阅（2026-05-20）
+
+- [x] L0.1 调研入口 — my.sjtu app menu API 列 weijieyue 真实 URI
+- [x] L0.2 chrome MCP 揭秘 getSessionId 一次性 token 机制
+- [x] L1 plan 文档 docs/superpowers/plans/2026-05-20-t7-library-loans.md
+- [x] L2 apps/library 模块骨架（throttle + models + http + client + mod + 4 fixture）
+- [x] L3 commands/library + cli/library
+- [x] L4 接线 apps/mod / commands/mod / cli/mod，cargo test 全绿
+- [x] L5 文档同步（SCHEMA / SKILL / README / CLAUDE）
+- [ ] CP-L1 真机：sjtu library loans — 当前借阅显示
+- [ ] CP-L2 真机：sjtu library history — 历史 ≥ 1 条
+- [ ] CP-L3 真机：sjtu library fines — 无罚款时显示 count:0
+- [ ] OQ-LIB-1..6 真机回填（见 plan §Open Questions）

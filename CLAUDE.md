@@ -70,6 +70,13 @@ sjtu-cli/
 │   ├── apps/                        # 每个子系统一个文件
 │   │   ├── mod.rs
 │   │   ├── jwc.rs                   # 教务（课表/成绩）
+│   │   ├── library/                 # 图书馆借阅（weijieyue.lib.sjtu.edu.cn:8080）
+│   │   │   ├── mod.rs
+│   │   │   ├── client.rs            # OAuth dance + Client + 3 业务方法
+│   │   │   ├── http.rs              # cookie 注入 + fetch_json
+│   │   │   ├── models.rs            # Loan / HistoryRow / Fine serde struct
+│   │   │   ├── throttle.rs          # 300ms 节流
+│   │   │   └── tests_parse.rs       # fixture + mockito e2e
 │   │   ├── card.rs                  # 一卡通
 │   │   ├── notifications.rs         # 交我办通知
 │   │   └── canvas.rs                # Canvas LMS
@@ -79,6 +86,10 @@ sjtu-cli/
 │   │   ├── schedule.rs              # schedule/today/week/next
 │   │   ├── grades.rs                # grades/gpa
 │   │   ├── card.rs                  # card/card history
+│   │   ├── library/                 # 图书馆借阅命令
+│   │   │   ├── mod.rs
+│   │   │   ├── data.rs
+│   │   │   └── handlers.rs
 │   │   ├── notifications.rs
 │   │   └── canvas.rs
 │   └── models/                      # struct（derive Serialize/Deserialize）
@@ -95,8 +106,8 @@ sjtu-cli/
 ```
 
 ### 当前阶段
-- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / S3f-T5 jwc 校历 iCal MVP（课表 + 考试 + 学年校历三路 fail-soft / RFC 5545 / FNV-1a UID 幂等；4 端真机 + 幂等通过 2026-05-15） / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标 / **CAS retry 层 follow-up（T9 真机盲区根治；jwc 9 个 call site 透明 auto-refresh；SubSessionStale 强类型信号 + downcast 跨 anyhow 链 6 测守护；ical fail-soft 吃信号 bug 修复；T8 真机 CP-CR-1/2/3 全过 2026-05-16）** / **S3 Phase 2 第一弹 — T4 一卡通 OAuth2 完整（OAuth2 Authorization Code 手卷 / api.sjtu.edu.cn / 17 commits / 17 新文件 + 4 修改 / 42 单测 / cli/cmd handlers 全过；真机 CP T14-T16 阻塞 client_id 审批，待用户走 developer.sjtu.edu.cn 流程）2026-05-17** / **S3 Phase 2 第二弹 — T4 一卡通 weixin path fallback 完整（OAuth2 client_id 审批阻塞背景下的双轨方案 / Envelope.meta + via.rs CardVia + weixin/ 6 子文件 HTML scrape + data_weixin 转换器 + handlers/cli --via dispatch / 11 commits / 9 新源文件 + 2 fixture HTML + SCHEMA.md / ~40 新单测 全过 / scraper 0.21 依赖加 / 真机 CP 4 项 + OQ-WX 3 项阻塞用户校园网） 2026-05-18** / **T4 weixin D12 三层 bug 修复 + parser 实站重写（surgical 4 轮锁定 L1 主 session 被 `_` 永久忽略 / L2 cookie jar domain mismatch 静默拒绝 / L3 reqwest URL parser 拒 OAuth2 scope 裸空格 + parser P1 实站 HTML 与 plan 阶段猜测完全不符；10 commits = T1 fixture + T2/T3 sanitize/follow + T4 L2 + T5/T6 L1 + T7/T8 parser + T9 fmt+clippy + T11 docs；fixture 用真机 dump 脱敏替换；OQ-WX-1/2/3 全部回填；stale 信号语义改 SessionExpired；321 测试全绿；真机 CP-WX 5 项阻塞用户校园网）2026-05-19**
-- **下一步**：① CP-WX-BAL/AUTO/HIST-7d/30d/STALE 5 项真机校园网内跑（用户触发）② T14-T16 真机 CP（client_id 到位后跑：CP-T4-AUTH/BAL/HIST/REFRESH 7 项）③ S3 Phase 2 候选续 — 通知聚合 / 图书馆借阅 / Phase 2 多卡支持；新 follow-up：① OQ-1 PKCE 是否被服务端强制（CP-T4-AUTH 真机答）② OQ-3 refresh_token 一次性策略观察（T16 + 1-2 周数据）③ elec/services/jwbmessage 接入 CAS retry 层 ④ elec/http.rs::truncate UTF-8 byte-slice 同款修 ⑤ HTML 改版风险 OQ-WX-3 阶段性复测（H1/Q2）⑥ balance_parse.rs 206 行 / history_parse.rs 244 行 略超 200 行硬限，下次"清理一下"按 `_parse_tests.rs` 拆 tests
+- **已完成**：S0 骨架 / S1 QR 扫码登录 / S2 CAS 子系统跳转 / S3a-e 水源・消息・日程・办事・电费（5 子系统 read-only） / S3f jwc MVP 成绩查询 + CAS / S3f-T5 jwc 校历 iCal MVP（课表 + 考试 + 学年校历三路 fail-soft / RFC 5545 / FNV-1a UID 幂等；4 端真机 + 幂等通过 2026-05-15） / Canvas Video MVP — CP-V1..V4（LTI launch + list + download + batch）/ V5.A mp4-full + ffmpeg single-channel baseline / V5.B/D/E-B+ audio-only 3 轮优化失败 → **V5.F 撤回**（删 audio_dl/m4a_mux/mp4_box 3 目录 -2092 行）/ V5.F 真机 9 讲 batch 15.13 min ≤ 25 min 目标 / **CAS retry 层 follow-up（T9 真机盲区根治；jwc 9 个 call site 透明 auto-refresh；SubSessionStale 强类型信号 + downcast 跨 anyhow 链 6 测守护；ical fail-soft 吃信号 bug 修复；T8 真机 CP-CR-1/2/3 全过 2026-05-16）** / **S3 Phase 2 第一弹 — T4 一卡通 OAuth2 完整（OAuth2 Authorization Code 手卷 / api.sjtu.edu.cn / 17 commits / 17 新文件 + 4 修改 / 42 单测 / cli/cmd handlers 全过；真机 CP T14-T16 阻塞 client_id 审批，待用户走 developer.sjtu.edu.cn 流程）2026-05-17** / **S3 Phase 2 第二弹 — T4 一卡通 weixin path fallback 完整（OAuth2 client_id 审批阻塞背景下的双轨方案 / Envelope.meta + via.rs CardVia + weixin/ 6 子文件 HTML scrape + data_weixin 转换器 + handlers/cli --via dispatch / 11 commits / 9 新源文件 + 2 fixture HTML + SCHEMA.md / ~40 新单测 全过 / scraper 0.21 依赖加 / 真机 CP 4 项 + OQ-WX 3 项阻塞用户校园网） 2026-05-18** / **T4 weixin D12 三层 bug 修复 + parser 实站重写（surgical 4 轮锁定 L1 主 session 被 `_` 永久忽略 / L2 cookie jar domain mismatch 静默拒绝 / L3 reqwest URL parser 拒 OAuth2 scope 裸空格 + parser P1 实站 HTML 与 plan 阶段猜测完全不符；10 commits = T1 fixture + T2/T3 sanitize/follow + T4 L2 + T5/T6 L1 + T7/T8 parser + T9 fmt+clippy + T11 docs；fixture 用真机 dump 脱敏替换；OQ-WX-1/2/3 全部回填；stale 信号语义改 SessionExpired；321 测试全绿；真机 CP-WX 5 项阻塞用户校园网）2026-05-19** / **T7 图书馆借阅 MVP**（loans / history / fines；主 jaccount session 直透传 + OAuth dance + 一次性 token；HTTP 8080 plain text；**红线**不实装 renew/payment 端点；真机 CP-L1/L2/L3 阻塞用户校园网）2026-05-20
+- **下一步**：① CP-WX-BAL/AUTO/HIST-7d/30d/STALE 5 项真机校园网内跑（用户触发）② T14-T16 真机 CP（client_id 到位后跑：CP-T4-AUTH/BAL/HIST/REFRESH 7 项）③ S3 Phase 2 候选续 — 通知聚合 / 图书馆借阅 / Phase 2 多卡支持；新 follow-up：① OQ-1 PKCE 是否被服务端强制（CP-T4-AUTH 真机答）② OQ-3 refresh_token 一次性策略观察（T16 + 1-2 周数据）③ elec/services/jwbmessage 接入 CAS retry 层 ④ elec/http.rs::truncate UTF-8 byte-slice 同款修 ⑤ HTML 改版风险 OQ-WX-3 阶段性复测（H1/Q2）⑥ balance_parse.rs 206 行 / history_parse.rs 244 行 略超 200 行硬限，下次"清理一下"按 `_parse_tests.rs` 拆 tests；新 T7 follow-up：OQ-LIB-1 getInfo schema 真机回填 / OQ-LIB-2 sessionId 一次性验证 / OQ-LIB-3 OAuth dance 跳数 / OQ-LIB-4 jaccount stale 落点 / OQ-LIB-5 history filter 探索 / OQ-LIB-6 空 fines 形态
 - **详细进度**：见 `tasks/todo.md`
 - **经验总结**：见 `tasks/lessons.md`（2026-05-19 reqwest URL parser × OAuth2 scope 空格 + cookie jar domain 分桶 + `_` 标参数误用 / 2026-05-16 CAS retry 收尾 / 2026-05-17 OAuth2 手卷 vs crate / Browser Drop 杀子进程坑 / dateTimAccount 拼写陷阱）
 

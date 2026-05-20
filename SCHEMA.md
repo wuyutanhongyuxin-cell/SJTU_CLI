@@ -34,3 +34,59 @@ meta:
 ```
 
 **后向兼容**：现有子命令（elec / shuiyuan / canvas / jwc / services / jwbmessage）不构造 `meta`，JSON 输出**不出现** `meta` 键。Agent 解析时 `meta` 是 optional 字段。
+
+## library —— 图书馆借阅（weijieyue.lib.sjtu.edu.cn:8080）
+
+**子命令**：`loans` / `history` / `fines`，均只读。
+
+**Envelope.meta**：
+```yaml
+meta:
+  via: weijieyue
+  source_hint: weijieyue.lib.sjtu.edu.cn:8080
+```
+
+### library loans
+
+```yaml
+data:
+  count: 2
+  items:
+    - title: "Rust 编程之道"
+      isbn: "9787121327971"
+      barcode: "B1234567"
+      borrow_date: "2026-04-15"
+      due_date: "2026-06-15"
+      renew_times: 0
+      location: "包玉刚图书馆"
+```
+
+### library history
+
+```yaml
+data:
+  count: 1
+  items:
+    - title: "算法导论"
+      isbn: "9787111407010"
+      borrow_date: "2025-09-01"
+      return_date: "2025-11-01"
+      location: "主馆"
+```
+
+### library fines
+
+```yaml
+data:
+  count: 1
+  pending_count: 1
+  items:
+    - title: "数据结构"
+      isbn: "9787302464710"
+      fine_sum: "5.00"
+      status: "待缴纳"
+      fine_date: "2026-04-20"
+      sequence: "F20260420001"
+```
+
+**红线**：永不实装续借 / 缴费 / 取消等写端点（参见 plan 文档 §红线契约）。
