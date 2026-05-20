@@ -12,6 +12,7 @@ mod card;
 mod elec;
 mod jwbmessage;
 pub mod jwc;
+mod library;
 mod services;
 mod shuiyuan;
 mod shuiyuan_args;
@@ -93,6 +94,12 @@ enum Commands {
         sub: jwc::JwcSub,
     },
 
+    /// 图书馆借阅（weijieyue.lib.sjtu.edu.cn:8080）：当前 / 历史 / 罚款（**只读**）。
+    Library {
+        #[command(subcommand)]
+        sub: library::LibrarySub,
+    },
+
     /// 办事大厅（my.sjtu.edu.cn）：流程待办列表（MVP 仅 `pending`，只读）。
     Services {
         #[command(subcommand)]
@@ -153,6 +160,7 @@ pub async fn run() -> Result<()> {
         Commands::Canvas { sub } => canvas::dispatch(sub, fmt).await,
         Commands::CanvasVideo { sub } => canvas_video::dispatch(sub, fmt).await,
         Commands::Jwc { sub } => jwc::dispatch(sub, fmt).await,
+        Commands::Library { sub } => library::dispatch(sub, fmt).await,
         Commands::Services { sub } => services::dispatch(sub, fmt).await,
         Commands::Elec { sub } => elec::dispatch(sub, fmt).await,
         Commands::Card { sub } => card::dispatch(sub, fmt).await,

@@ -6,5 +6,6 @@ pub mod card;
 pub mod elec;
 pub mod jwbmessage;
 pub mod jwc;
+pub mod library;
 pub mod services;
 pub mod shuiyuan;
