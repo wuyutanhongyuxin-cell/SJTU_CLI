@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Body>
+    <SearchResponse offset="0" more="1" sortBy="dateDesc" xmlns="urn:zimbraMail">
+      <m id="201" l="2" f="u" d="1700100000000" s="800">
+        <fr>Unread fixture</fr>
+        <e a="alert@example.com" d="alert" t="f"/>
+        <su>Unread test</su>
+      </m>
+    </SearchResponse>
+  </soap:Body>
+</soap:Envelope>

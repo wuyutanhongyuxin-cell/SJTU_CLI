@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Body>
+    <GetMsgResponse xmlns="urn:zimbraMail">
+      <m id="401" l="2" d="1700300000000" s="2500" sd="1700300000000" rev="200" f="u">
+        <fr>Full body preview...</fr>
+        <e a="from@example.com" d="from" t="f"/>
+        <e a="me@sjtu.edu.cn" t="t"/>
+        <su>Full body fixture</su>
+        <mid>&lt;mid-401@example.com&gt;</mid>
+        <mp part="1" ct="text/plain">
+          <content>Hello World!
+This is a plain text body for fixture.
+Line 3.</content>
+        </mp>
+      </m>
+    </GetMsgResponse>
+  </soap:Body>
+</soap:Envelope>

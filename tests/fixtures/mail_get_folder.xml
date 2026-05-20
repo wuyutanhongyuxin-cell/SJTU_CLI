@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Body>
+    <GetFolderResponse xmlns="urn:zimbraMail">
+      <folder id="1" name="USER_ROOT" absFolderPath="/" view="">
+        <folder id="2" name="Inbox" absFolderPath="/Inbox" view="message" n="123" u="5"/>
+        <folder id="5" name="Sent" absFolderPath="/Sent" view="message" n="45"/>
+        <folder id="6" name="Drafts" absFolderPath="/Drafts" view="message" n="0"/>
+        <folder id="3" name="Junk" absFolderPath="/Junk" view="message" n="12"/>
+        <folder id="4" name="Trash" absFolderPath="/Trash" view="message" n="8"/>
+      </folder>
+    </GetFolderResponse>
+  </soap:Body>
+</soap:Envelope>

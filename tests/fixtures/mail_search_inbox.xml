@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Header><context xmlns="urn:zimbra"><change token="100"/></context></soap:Header>
+  <soap:Body>
+    <SearchResponse offset="0" more="0" sortBy="dateDesc" xmlns="urn:zimbraMail">
+      <m rev="100" s="1024" sf="1700000000000" d="1700000000000" f="u" cm="1" id="111" l="2" cid="-111">
+        <fr>This is a fixture preview text.</fr>
+        <e a="sender1@example.com" d="Sender One" t="f"/>
+        <su>Fixture subject 1</su>
+      </m>
+      <m rev="99" s="2048" sf="1699999000000" d="1699999000000" cm="1" id="112" l="2" cid="113">
+        <fr>Second fixture preview.</fr>
+        <e p="Display Name" a="sender2@example.com" d="sender2" t="f"/>
+        <su>Fixture subject 2</su>
+      </m>
+      <m rev="98" s="512" sf="1699998000000" d="1699998000000" cm="1" id="114" l="2" cid="114">
+        <fr>Third preview.</fr>
+        <e a="noreply@example.com" d="noreply" t="f"/>
+        <su>Fixture subject 3</su>
+      </m>
+    </SearchResponse>
+  </soap:Body>
+</soap:Envelope>

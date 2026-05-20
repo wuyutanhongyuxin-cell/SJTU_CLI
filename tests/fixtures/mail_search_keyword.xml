@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <soap:Body>
+    <SearchResponse offset="0" more="0" sortBy="dateDesc" xmlns="urn:zimbraMail">
+      <m id="301" l="2" d="1700200000000" s="600">
+        <fr>Keyword match preview</fr>
+        <e a="match@example.com" d="match" t="f"/>
+        <su>Keyword fixture</su>
+      </m>
+    </SearchResponse>
+  </soap:Body>
+</soap:Envelope>
