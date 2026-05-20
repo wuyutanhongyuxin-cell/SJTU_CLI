@@ -92,6 +92,33 @@
 
 ---
 
+## 2026-05-20 — T7 R6 真机 CP：library production code 漏 `.no_proxy()`
+
+**触发情境**：R1-R5 全绿（fmt + clippy + 340 测试全过）落地后，R6 真机 CP-L1 第一发就 503：
+`/getPidFromSession status=503 Service Unavailable snippet=`。
+
+**错误模式**：
+
+- R2 写 mockito 测试时遇到 v2rayN 系统代理截 127.0.0.1 → 503，给 *测试用* 的 inline client 加了 `.no_proxy()`。
+- 但 production `build_http_client`（src/apps/library/http.rs:47-68）**没加**。
+- 在校园网内开发机（普遍开 v2rayN / Clash）跑 production code，:8080 端口流量仍被代理截走 → 503，跟测试期遇到的是同一根因，只是没在 production 复制 fix。
+- elec / services / shuiyuan 等子系统不受影响是因为它们走标准 443 HTTPS，v2rayN routing 规则匹配 `*.sjtu.edu.cn` 直连；而 weijieyue 是 **HTTP plain text + 非标端口 8080**，routing 规则没命中。
+
+**正确做法**：
+
+- library production `build_http_client` 必须 `.no_proxy()`（src/apps/library/http.rs:60 加，注释 head 加说明）。
+- 校园网内必须直连；校园网外无论代理与否都访问不到（内网 only）→ 强制 no_proxy 不会让任何场景变差。
+- 真机 CP 验证：no_proxy fix 后三连全 200，count:0（用户从未借书）。
+- OQ-LIB-1/5 无法回填（无书）；OQ-LIB-6 推论"空 fines 走 result:1 + fineArray:[]"（无错即对）；OQ-LIB-2/3/4 三连未触发 stale 路径。
+
+**规则**：
+
+- **R11**: SJTU 子系统涉及 **HTTP plain text** 或 **非标端口**（如 weijieyue:8080）时，production `build_http_client` 必须显式 `.no_proxy()`（v2rayN/Clash 截非 HTTPS 流量）。标准 443 HTTPS 不需要（系统代理 routing 自带 sjtu.edu.cn 直连规则）。
+- **Why**: 中国大陆开发机普遍跑 v2rayN/Clash 系统代理，:8080 + plain HTTP 不在常规 bypass 名单内 → 截到代理 → 503。
+- **How to apply**: 新接入 SJTU HTTP 子系统前先看 endpoint scheme/port。`http://*:non-443` → `.no_proxy()` 必加；`https://*:443` → 默认即可（依赖系统代理 routing）。
+
+---
+
 ## 2026-05-20 — T7 library 实装：模仿 weixin path 范式 + 三层接线 + fixture-only 验证局限
 
 **R8** library 子系统不接 CAS retry 层：weijieyue 走 jaccount OAuth dance（与 weixin path 同范式），

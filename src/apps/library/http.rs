@@ -6,6 +6,12 @@
 //! **HTTP 8080 plain text**：weijieyue 后端不强 HTTPS，scheme 用 http://，端口 8080。
 //! reqwest 默认接受 http scheme，无需 `.https_only(false)` 显式声明。
 //!
+//! **`.no_proxy()` 必须**：weijieyue 是校园网内 HTTP plain + 非标端口（8080），
+//! 中国大陆开发机普遍开 v2rayN / Clash 系统代理，会把 :8080 端口流量截走 → 503。
+//! 校园网内必须直连，校园网外无论是否走代理都访问不到 —— 故强制 no_proxy 不会让
+//! 任何场景变差。这是 library 区别于 elec/services/shuiyuan 的特殊点（其他子系统
+//! 走标准 443 HTTPS，系统代理 routing 规则能匹配上 *.sjtu.edu.cn 直连）。
+//!
 //! 请求头硬约束（mimic 真机 chrome MCP 抓的）：
 //! - `Accept: application/json, text/plain, */*`
 //! - `Referer: <BASE>/wechat/sjtu/nowlend`
@@ -62,6 +68,7 @@ pub(super) fn build_http_client(main_session: &Session) -> Result<Client> {
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(45))
         .gzip(true)
+        .no_proxy()
         .user_agent(UA)
         .build()
         .map_err(|e| SjtuCliError::NetworkError(format!("构造 library HTTP client: {e}")).into())

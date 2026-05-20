@@ -575,7 +575,14 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
 - [x] L3 commands/library + cli/library
 - [x] L4 接线 apps/mod / commands/mod / cli/mod，cargo test 全绿
 - [x] L5 文档同步（SCHEMA / SKILL / README / CLAUDE）
-- [ ] CP-L1 真机：sjtu library loans — 当前借阅显示
-- [ ] CP-L2 真机：sjtu library history — 历史 ≥ 1 条
-- [ ] CP-L3 真机：sjtu library fines — 无罚款时显示 count:0
-- [ ] OQ-LIB-1..6 真机回填（见 plan §Open Questions）
+- [x] R6 production no_proxy fix（src/apps/library/http.rs:60 加 `.no_proxy()`；root cause v2rayN 截 :8080；lessons R11）
+- [x] CP-L1 真机：sjtu library loans — `count:0` ok:true（用户从未借书）
+- [x] CP-L2 真机：sjtu library history — `count:0` ok:true（同上）
+- [x] CP-L3 真机：sjtu library fines — `count:0 pending_count:0` ok:true
+- [~] OQ-LIB-1..6 部分回填：
+  - OQ-LIB-1（getInfo 字段名）：用户无书未触 borrowArray，仍是 L0 推测，待真书时验
+  - OQ-LIB-2（sessionId 一次性）：三连每次 fetch 新 sid 全过，未观察 reuse
+  - OQ-LIB-3（OAuth dance 跳数）：三连各跑一次完整 dance，全 200，范式工作
+  - OQ-LIB-4（jaccount stale 落点）：session 有效期内未触发
+  - OQ-LIB-5（history filter）：用户无历史未能验
+  - OQ-LIB-6（空 fines 形态）：推论 `result:1, fineArray:[]`（无错即对，与代码假设一致）
