@@ -13,6 +13,7 @@ mod elec;
 mod jwbmessage;
 pub mod jwc;
 mod library;
+mod mail;
 mod services;
 mod shuiyuan;
 mod shuiyuan_args;
@@ -117,6 +118,12 @@ enum Commands {
         #[command(subcommand)]
         sub: card::CardSub,
     },
+
+    /// 邮件（mail.sjtu.edu.cn Zimbra SOAP）：收件箱列表 / 未读过滤 / 搜索 / 读正文（只读）。
+    Mail {
+        #[command(subcommand)]
+        sub: mail::MailSub,
+    },
 }
 
 /// 供 clap 解析的 `--browser` 枚举。只为了 derive `ValueEnum`。
@@ -164,6 +171,7 @@ pub async fn run() -> Result<()> {
         Commands::Services { sub } => services::dispatch(sub, fmt).await,
         Commands::Elec { sub } => elec::dispatch(sub, fmt).await,
         Commands::Card { sub } => card::dispatch(sub, fmt).await,
+        Commands::Mail { sub } => mail::dispatch(sub, fmt).await,
     }
 }
 
