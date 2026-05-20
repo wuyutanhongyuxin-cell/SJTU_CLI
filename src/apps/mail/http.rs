@@ -181,7 +181,10 @@ mod tests {
     fn extract_zm_token_from_jar() {
         let jar = Arc::new(Jar::default());
         let url = Url::parse("https://mail.sjtu.edu.cn/").unwrap();
-        jar.add_cookie_str("ZM_AUTH_TOKEN=abc123; Domain=mail.sjtu.edu.cn; Path=/", &url);
+        jar.add_cookie_str(
+            "ZM_AUTH_TOKEN=abc123; Domain=mail.sjtu.edu.cn; Path=/",
+            &url,
+        );
         let token = extract_zm_auth_token(&jar);
         assert_eq!(token.as_deref(), Some("abc123"));
     }
