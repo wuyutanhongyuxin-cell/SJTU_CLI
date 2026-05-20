@@ -2,7 +2,7 @@
 
 上海交通大学 JAccount 命令行工具。扫码登录一次，终端里直接查水源 / 交我办消息 / Canvas 作业 DDL，输出支持 YAML / JSON，方便 AI Agent 调用。
 
-> **状态**：alpha — 已实装 7 大子系统（水源 / 交我办消息 / Canvas / 办事大厅 / 电费 / 教务 / 一卡通）；命令面稳定，仍在持续接入新子系统。仅供个人合规使用。
+> **状态**：alpha — 已实装 8 大子系统（水源 / 交我办消息 / Canvas / 办事大厅 / 电费 / 教务 / 一卡通 / 邮箱）；命令面稳定，仍在持续接入新子系统。仅供个人合规使用。
 
 ## 合规声明
 
@@ -28,6 +28,8 @@
 | `sjtu jwc grades\|schedule\|gpa\|exams\|today\|week\|next\|calendar` | 教务（i.sjtu.edu.cn）—— N305005 成绩 / N2151 学年学期课表 / N309131 GPA + 排名双轨 (`gpapmParsed` / `xjfpmParsed`) / N358105 考试 / N2154 衍生（今日 / 整周 / 接下来 N 天） / RFC 5545 iCal 导出（课表 + 考试 + 校历，FNV-1a UID 幂等）；`--grid` comfy-table 表格输出 |
 | `sjtu jwc gpa-by-semester` | 多学期 GPA 对比（默认 4 年 × 3 学期 N309131 循环，600ms throttle，fail-soft：失败学期落 `failed[]`，exit 始终 0；真机 12 学期 ~56s） |
 | `sjtu card auth\|balance\|history` | 一卡通（api.sjtu.edu.cn）—— OAuth2 Authorization Code，余额 + 消费记录只读；金额 `rust_decimal::Decimal` 硬约束；身份字段默认抹掉，`--with-identity` 才出 |
+| `sjtu mail list [--unread] [--search <q>]` | 邮箱（mail.sjtu.edu.cn Zimbra）—— inbox 预览，`--unread` 仅未读，`--search` 关键字；别名 `mail ls` |
+| `sjtu mail read <id>` | 邮箱单封正文（**不**标已读，编译期注入 `read="0"`）|
 
 路线图 / 未完工事项见 `tasks/todo.md`。性能复盘 / 知识沉淀见 `docs/superpowers/research/`。
 

@@ -242,6 +242,52 @@ sjtu library fines
 
 ---
 
+## 邮箱命令（mail）
+
+> 后端：`mail.sjtu.edu.cn`（Zimbra 8.x），JAccount SSO 跟链 + ZM_AUTH_TOKEN，主 jaccount session 直透传。
+
+```bash
+# 收件箱预览（默认 50 条）
+sjtu mail list
+
+# 仅未读
+sjtu mail list --unread
+
+# 关键字搜索（与 --unread 互斥）
+sjtu mail list --search "奖学金"
+
+# 分页（与 --limit 组合）
+sjtu mail list --limit 20 --offset 20
+
+# 读单封正文（不标已读）
+sjtu mail read <ID>
+
+# 别名
+sjtu mail ls
+```
+
+均 `--yaml` / `--json` 可切换输出格式。
+
+**输出关键字段（list）**：
+- `data.query`：实际发到 Zimbra 的 search query（debug 回显）
+- `data.count`：本次返回邮件数
+- `data.offset`：本次分页偏移
+- `data.has_more`：是否还有更多（翻页提示）
+- `data.items[]`：邮件列表，每条含 `id` / `subject` / `from_display` / `from_address` / `date_ms` / `unread` / `size_bytes`（可选）
+
+**输出关键字段（read）**：
+- `data.id` / `data.subject` / `data.from_*` / `data.date_ms` / `data.unread`
+- `data.to_addresses[]` / `data.cc_addresses[]`：地址列表，每条含 `address` / `display_name`
+- `data.body_plain`：text/plain 正文；HTML-only 邮件为 null
+- `data.body_warning`：HTML-only 等情况的提示文本
+
+### 永久不实装的写端点（CLI 红线）
+
+- `mail read` 编译期注入 `read="0" html="0" max="50000"`，**绝不**标记邮件已读
+- 编译期不实装：SendMsgRequest（发送）/ SaveDraftRequest（草稿）/ 所有 `*Action`（标记 / 移动 / 删除）
+
+---
+
 ## 一卡通命令（card）
 
 > 后端：`api.sjtu.edu.cn/v1/me/card*`，OAuth2 Authorization Code，token 落 `~/.sjtu-cli/sub_sessions/card_oauth.json`。

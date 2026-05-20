@@ -90,3 +90,50 @@ data:
 ```
 
 **红线**：永不实装续借 / 缴费 / 取消等写端点（参见 plan 文档 §红线契约）。
+
+## sjtu mail（邮件）
+
+**子命令**：`mail list [--unread|--search <q>] [--limit N] [--offset N]` / `mail read <id>` / 别名 `mail ls`
+
+### MailListData（list / unread / search 共享）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `query` | string | 实际发到 Zimbra 的 search query（debug 回显）|
+| `count` | int | 本次返回邮件数 |
+| `offset` | int | 本次分页偏移（Agent 用于下一页）|
+| `has_more` | bool? | 是否还有更多（count == limit 时为 true）|
+| `items` | MailListRow[] | 邮件预览列表 |
+
+MailListRow:
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 邮件 ID（传 mail read 用）|
+| `from_display` | string? | 发件人显示名 |
+| `from_address` | string? | 发件人完整地址 |
+| `subject` | string? | 主题 |
+| `fragment` | string? | 正文预览（~200 字符）|
+| `date_ms` | int? | 时间戳（毫秒 unix epoch）|
+| `size_bytes` | int? | 邮件字节大小（识别大附件用）|
+| `unread` | bool | 是否未读 |
+
+### MailReadData（read）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | string | 邮件 ID |
+| `subject` | string? | 主题 |
+| `from_address` | string? | 发件人完整地址 |
+| `from_display` | string? | 发件人显示名 |
+| `to_addresses` | Address[] | 收件人列表（含 address / display_name）|
+| `cc_addresses` | Address[] | 抄送列表 |
+| `date_ms` | int? | 时间戳（毫秒 unix epoch）|
+| `unread` | bool | 是否未读（read=0 不改原状态，透传 meta.unread）|
+| `body_plain` | string? | text/plain 正文；HTML-only 邮件为 None |
+| `body_warning` | string? | HTML-only 邮件时的提示文本；有 plain 时为 None |
+
+### 红线（实装期硬约束）
+
+- `mail read` 强制带 `read="0" html="0" max="50000"`，**绝不**修改邮件已读状态
+- 编译期不实装：SendMsgRequest / SaveDraftRequest / 所有 *Action* 类

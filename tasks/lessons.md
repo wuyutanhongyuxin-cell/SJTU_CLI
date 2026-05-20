@@ -1002,3 +1002,70 @@ ZF 的 OAuth2 入口必须显式触发：从 login 页 HTML 里能看到 `<a hre
 5. **Cookie struct 注入 reqwest jar**：`crate::cookies::Cookie` 是纯数据 struct 无 `to_set_str` 方法，手卷 `cookie_to_set_str(&Cookie) -> String` 拼 `name=value; Domain=; Path=` 喂 `Jar::add_cookie_str`。expires 不拼 —— Jar 不在乎，stale 由 `SubSessionStale` 信号驱动。
 6. **`with_cas_refresh` 复用**：weixin path 复用 T8 的 retry helper，stale variant `SubSessionStale("card_weixin")` 由 `detect_stale_or_unexpected` 在响应 URL 落到 `jaccount/jalogin` 或 `oauth2/authorize` 时手动抛。
 7. **PII 红线在 parse 层 enforce**：weixin balance_parse 主动 drop `姓名 / 学号 / 绑定银行卡` 行（不写入 CardInfo），不依赖上层 redact。
+
+## 2026-05-20 — T8 邮箱 MVP（Zimbra SOAP）
+
+### R12 — Zimbra SOAP `<context><authToken>` envelope 显式注入（不可省）
+
+**结论**：Zimbra SOAP endpoint `POST /service/soap` **必须**在 envelope `<soap:Header>` 显式带：
+
+```xml
+<context xmlns="urn:zimbra">
+  <authToken>{ZM_AUTH_TOKEN}</authToken>
+</context>
+```
+
+**只放 cookie 不够** —— `ZM_AUTH_TOKEN` cookie 已带上、jaccount session 已跟链到 mail.sjtu.edu.cn，但 SOAP envelope 没 `<authToken>` 元素 → 服务端返 500 + Fault `service.AUTH_REQUIRED`，**完全不认 cookie 路径的 token**。
+
+**Why**：Zimbra SOAP 接口设计上把 authToken 视作 envelope-level 凭据；cookie 路径只是 web UI（Zimlet）的 session 维系手段。两套互不通用。
+
+**How to apply**：
+1. 任何 Zimbra SOAP 子系统，第一步是 `extract_zm_auth_token(jar)` 从 reqwest jar 抠 cookie value
+2. 用 `wrap_envelope(auth_token, body)` 包所有业务 envelope（search / get_msg / get_folder）—— **不要**在某个 builder 里漏带
+3. 用 `is_auth_required_fault(xml)` substring 匹配 `<Code>service.AUTH_REQUIRED</Code>`，识别为 `SjtuCliError::SessionExpired`，触发 stale 路径
+
+### R13 — `read="0" html="0" max="50000"` 编译期注入红线（用户层零开关）
+
+**结论**：`GetMsgRequest` 的三个属性必须在 `build_get_msg_envelope(auth_token, msg_id)` builder 内部**硬编码**：
+
+```rust
+format!(r#"<m id="{msg_id}" read="0" html="0" max="50000"/>"#)
+```
+
+**为什么不暴露开关**：
+- `read="0"`：**绝不**标已读（user 通过 CLI 读邮件不应该影响"未读"状态，否则用户回邮箱客户端看会困惑）
+- `html="0"`：**绝不**取 HTML（agent 用，HTML 解析复杂 + 引入 XSS / phishing 链接信号污染；用户要看 HTML 自己开邮件客户端）
+- `max="50000"`：体积上限 50KB（防 dump 大附件 dataURL；超出走 `body_warning` 提示）
+
+**How to apply**：任何"用户行为相关的关键安全属性"都应该在 builder/struct 创建处编译期硬定，不暴露 CLI flag。CLI flag 暴露 = 用户/agent 误开一次就破红线。
+
+### R14 — IMAP 路线放弃：jaccount master password 不可代输
+
+**结论**：IMAP 连接 sjtu 邮件需要 jaccount 完整账号 + master password（不能用 SSO token）；CLI 设计**红线**之一是"不代用户输入 jaccount 密码"——所以 IMAP 路线在 L0 调研阶段就被排除。
+
+**Why**：
+- jaccount master password 是高敏感凭据，CLI 持有 = 单点风险
+- 我们已有 jaccount **session cookie** 透传机制（QR 扫码登录 → cookies 落盘 600 权限）
+- Zimbra SOAP 路线只需 session → 跟链 → ZM_AUTH_TOKEN，**完全无需 master password**
+
+**How to apply**：新增 SJTU 子系统 L0 阶段，先验证"是否能用现有 jaccount session SSO 进去"。如果只能走账号密码 / OAuth client_secret 路径，**默认放弃**（红线）；如果走 client_id-only（如 card OAuth2 PKCE），单独评估。
+
+### R15 — plan 字面与项目现状脱节时，跟随**现状**（implementer 不替 controller 决策）
+
+**结论**：plan 字面是 brainstorming 时的形状预设，未必准确反映项目 evolution。R5 review 发现 plan 字面与现状两处冲突：
+
+| 项 | plan 字面 | 现状（grep 7 个子系统） | 解决 |
+|---|---|---|---|
+| handlers 签名 | `Result<Envelope<T>>` 由 dispatch 处 render | `Result<()>` + 内部 `render(envelope, fmt)`（所有 cmd_*）| 跟随现状 |
+| cli enum 包装 | `MailArgs { sub: MailSub }` | `pub enum XxxSub` 直接（library/card/jwc 全是）| 跟随现状 |
+
+**Why**：plan 写时 controller 未必逐子系统 grep 实际签名，可能凭印象写。implementer 若机械执行 plan 字面，会引入"7 子系统 1 个特例"的 refactor 噪音 —— 而这种 refactor 没有 controller 拍板，是 implementer 越权决策。
+
+**How to apply**：
+1. implementer Pre-Step 0 **强制 grep 现有 `cmd_*` 函数签名 + `pub enum.*Sub`** 作 ground truth
+2. 若 plan 字面与现状冲突：**跟随现状**，在 self-review 段落显式声明 deviation reason "plan 字面错而非 implementer 错"，让 reviewer 判
+3. reviewer 应该把这种声明当作"plan 错请 controller ACK"信号，而**不是**"implementer 偷懒"
+4. controller ACK 后回头补 plan 校正（如果后续还要参考该 plan）
+
+**反例**：implementer 严格跟 plan 字面 → 写出 7 子系统中唯一一个 `Result<Envelope<T>>` 签名的 mail handler → reviewer 通过 → 后续 mail 调用 dispatch 时签名不匹配 → 临 commit 才发现要全 refactor 或 wrap，纯浪费 token。
+

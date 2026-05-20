@@ -586,3 +586,67 @@ OAuth2 client_id 审批阻塞背景下，新增 weixin path（jaccount cookie �
   - OQ-LIB-4（jaccount stale 落点）：session 有效期内未触发
   - OQ-LIB-5（history filter）：用户无历史未能验
   - OQ-LIB-6（空 fines 形态）：推论 `result:1, fineArray:[]`（无错即对，与代码假设一致）
+
+## T8 邮箱 MVP — Zimbra SOAP 路线（2026-05-20）
+
+### L0 调研（chrome-devtools 阶段）
+- [x] L0.1 入口确认：`https://mail.sjtu.edu.cn/` jaccount SSO → Zimbra
+- [x] L0.2 SOAP endpoint：`POST /service/soap` content-type `application/soap+xml; charset=utf-8`
+- [x] L0.3 鉴权 trap 锁定：cookie `ZM_AUTH_TOKEN` 单独不够 → SOAP envelope **必须**显式带 `<context xmlns="urn:zimbra"><authToken>...</authToken></context>`，否则 500 `service.AUTH_REQUIRED`
+- [x] L0.4 IMAP 路线放弃：jaccount **master password** 不可代输 → MVP 仅 Zimbra SOAP
+- [x] L0.5 红线锁定：`GetMsgRequest` 必带 `read="0" html="0" max="50000"`；`SendMsg` / `SaveDraft` / `*Action` 全部编译期硬禁
+
+### M0 plan（docs/superpowers/plans/2026-05-20-t8-mail-mvp.md）
+- [x] M0.1 plan 文档 14 Plan Tasks + 7 R-units 拆解（2063 行）
+- [x] M0.2 deps 申请：`quick-xml 0.34`（features=["serialize"]）✅ 批准
+- [x] M0.3 spec：MailListData / MailReadData schema 字段表（query / has_more / unread / size_bytes 等）
+- [x] M0.4 红线段：4 大写端点编译期硬禁 + read=0 / html=0 / max=50000 编译期注入
+
+### R1 deps + throttle + models（Plan Task 1-3）
+- [x] commit `a9e5cee` — Cargo.toml 加 quick-xml 0.34
+- [x] commit `d59cce8` — throttle.rs 300ms 固定节流（55 行）
+- [x] commit `a4a6dc5` — models.rs Mail / MailFull / Address（107 行）
+- [x] commit `5029a27` — style fix mod.rs 字母序过 `cargo fmt --check`
+
+### R2 soap.rs envelope builders（Plan Task 4）
+- [x] commit `0d4f04c` — SOAP envelope builder + parser 拆 3 文件守 200 行硬限（soap / parser / extract）
+- [x] commit `ab1c1f7` — extract.rs 清 `unused_assignment` + 3 个 `collapsible_match` lint
+
+### R3 http + client（Plan Task 5-6）
+- [x] commit `4283825` — http.rs build_client + SOAP POST + ZM_AUTH_TOKEN 抽取（199 行，borderline 200）
+- [x] commit `9cc9cf4` — client.rs MailClient::connect SSO + 4 只读方法 search/inbox/unread/keyword/get_msg（113 行）
+
+### R4 mod + fixtures + tests_parse（Plan Task 7-8）
+- [x] commit `594cf30` — apps/mail/mod.rs 9 子模块 re-export + 6 fixture XML（全脱敏 dummy）
+- [x] commit `66a8bba` — tests_parse.rs 5 sync parse + 2 mockito async e2e（141 行）
+- [x] commit `0eaefdd` — R4 review fix：补 `assert!(matches!(...))` + 删 dead mockito test + 字段验证补全
+
+### R5 commands + cli + 接线（Plan Task 9-11）
+- [x] commit `1373f0b` — commands/mail handlers + data shape（4 handlers, 110+113 行）
+- [x] commit `e036eaf` — cli/mail.rs MailSub (List/Read) + `--unread`/`--search` 互斥（68 行）
+- [x] commit `3023b1d` — 接线 apps/commands/cli 三层 mod；`sjtu mail` 子命令可见
+- [x] commit `a30a47e` — R5 spec review fix：补 query/has_more/unread 字段 + `#[command(alias = "ls")]`
+- [x] commit `fc54d50` — R5 quality nit fix：`estimate_has_more` 第二臂改 `None`；`Option<bool>` 语义对齐
+
+### R6 健康检查 + 文档同步（Plan Task 12-13）
+- [x] `cargo fmt --check` 干净
+- [x] `cargo clippy --all-targets -- -D warnings` 0 errors 0 warnings
+- [x] `cargo test` 359 tests pass（347 lib + 7 integration + 5 doctest；19 mail tests）
+- [x] 行数审计：所有 9 个 apps/mail/*.rs ≤ 200（max http.rs 199）；tests_parse.rs 141 ≤ 300；commands/mail/handlers.rs 113；cli/mail.rs 68
+- [x] 文档同步：SCHEMA.md / SKILL.md / README.md / CLAUDE.md / tasks/todo.md（本节）/ tasks/lessons.md（R12-R15）
+
+### R7 真机 CP（用户触发）— PENDING
+- [ ] CP-M1 `sjtu mail list` — 返回最新 inbox 50 条 ok:true items.len > 0
+- [ ] CP-M2 `sjtu mail list --unread` — 仅未读子集
+- [ ] CP-M3 `sjtu mail list --search "通知"` — 关键字过滤
+- [ ] CP-M4 `sjtu mail read <id>` — body_plain 解析 + **不改邮件已读状态**（验真机邮箱客户端确认）
+
+### Follow-up（不阻塞 MVP）
+- [ ] OQ-M-1 SearchResponse `more="1"` 属性精确分页（当前 `estimate_has_more` 用 `count == limit` 启发估算）
+- [ ] OQ-MAIL-1 真实邮件多地址 fixture 反推 `to_addresses` 全字段
+- [ ] OQ-MAIL-2 HTML-only 邮件真机 → `body_warning` 验证
+- [ ] OQ-MAIL-3 大附件 `size_bytes` 阈值（agent 决定是否 read）
+- [ ] OQ-MAIL-4 Zimbra Fault Code 全集补全（当前只识 `service.AUTH_REQUIRED`）
+- [ ] OQ-MAIL-5 SOAP `<context>` schema 是否随 Zimbra 升级变化
+- [ ] OQ-MAIL-6 真机 `--limit` 上限观察（500? 1000?）
+
