@@ -41,25 +41,18 @@ pub(super) fn extract_plain_body(xml: &str) -> Option<String> {
                     in_content = true;
                 }
             }
-            Ok(Event::Text(t)) => {
-                if in_content {
-                    acc.push_str(&t.unescape().unwrap_or_default());
-                }
+            Ok(Event::Text(t)) if in_content => {
+                acc.push_str(&t.unescape().unwrap_or_default());
             }
-            Ok(Event::CData(t)) => {
-                if in_content {
-                    acc.push_str(&String::from_utf8_lossy(t.as_ref()));
-                }
+            Ok(Event::CData(t)) if in_content => {
+                acc.push_str(&String::from_utf8_lossy(t.as_ref()));
             }
             Ok(Event::End(e)) => match e.name().as_ref() {
                 b"content" => in_content = false,
-                b"mp" => {
-                    if in_plain_part {
-                        depth_in_part -= 1;
-                        if depth_in_part == 0 {
-                            in_plain_part = false;
-                            break;
-                        }
+                b"mp" if in_plain_part => {
+                    depth_in_part -= 1;
+                    if depth_in_part == 0 {
+                        break;
                     }
                 }
                 _ => {}
@@ -84,28 +77,26 @@ pub(super) fn extract_addresses_by_type(xml: &str, t_value: &str) -> Vec<Address
     let mut out = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                if e.name().as_ref() == b"e" {
-                    let mut addr = None;
-                    let mut disp = None;
-                    let mut typ = String::new();
-                    for attr in e.attributes().flatten() {
-                        let key = attr.key.as_ref();
-                        let val = attr.unescape_value().unwrap_or_default().to_string();
-                        match key {
-                            b"a" => addr = Some(val),
-                            b"d" => disp = Some(val),
-                            b"t" => typ = val,
-                            _ => {}
-                        }
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) if e.name().as_ref() == b"e" => {
+                let mut addr = None;
+                let mut disp = None;
+                let mut typ = String::new();
+                for attr in e.attributes().flatten() {
+                    let key = attr.key.as_ref();
+                    let val = attr.unescape_value().unwrap_or_default().to_string();
+                    match key {
+                        b"a" => addr = Some(val),
+                        b"d" => disp = Some(val),
+                        b"t" => typ = val,
+                        _ => {}
                     }
-                    if typ == t_value {
-                        if let Some(a) = addr {
-                            out.push(Address {
-                                address: a,
-                                display: disp,
-                            });
-                        }
+                }
+                if typ == t_value {
+                    if let Some(a) = addr {
+                        out.push(Address {
+                            address: a,
+                            display: disp,
+                        });
                     }
                 }
             }
