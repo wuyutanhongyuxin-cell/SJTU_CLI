@@ -15,6 +15,54 @@
 
 ---
 
+## 2026-05-21 — sjtu-daily v1.1 真机冒烟 × Windows stdout GBK × emoji × 训练数据 vs provider docs 反转 lesson
+
+**触发情境**：sjtu-daily（Python sister project，wraps sjtu-cli Rust binary）v1.1 LLM 摘要层真机端到端冒烟（task #47）。`mode = "cascade"` + Gemini 2.5 flash-lite analyze + DeepSeek polish 双 SDK，3 个 scenarios 全过（happy / fake-gemini → DeepSeek fallback_full / both-fake → no-summary + exit 0）。冒烟本身 happy，但**事后基于训练数据脑补 DeepSeek "真实模型名"，被用户截图官方 docs 当场反转**。
+
+**错误模式**：
+
+1. **Windows stdout 默认 cp936/GBK 无法编 emoji → dry-run 整个崩**
+   - v1.1 LLM summary 模板含 `🤖 今日摘要 / 📌 今日重点 / ⚠️ 紧急 / 💡 建议`
+   - `sjtu_daily dry-run` 走 `sys.stdout.write(html)` 路径
+   - Windows PowerShell 默认 stdout encoding = `cp936`/`GBK`，遇 `\U0001f916` (🤖) 抛 `UnicodeEncodeError`
+   - v1 期 dashboard 没 emoji → 隐藏；v1.1 LLM emoji 一出立即暴露
+   - `run --force` 路径写 `dashboard.html` 用 `encoding="utf-8"` 显式指定，所以主路径不挂；只 stdout 路径挂
+
+2. **【自打脸】把 plan 期写的官方真名 `deepseek-v4-flash` 当作"plan 占位"质疑 + 反向推荐用户改成训练数据里的"真名" `deepseek-chat`**
+   - `src/sjtu_daily/llm/schemas.py:22` 默认 `deepseek_model = "deepseek-v4-flash"` —— 我没查官方 docs，凭训练数据（知识截止 2026-01）记忆里的 "deepseek-chat / deepseek-reasoner" 当成"真名"
+   - 让用户 config.toml 写 `deepseek-chat`，跑通是因为 DeepSeek 服务端把旧别名向后兼容映射到具体 V4 模型；代码注释甚至明写"`deepseek-chat` 别名将于 2026-07-24 弃用"，我**也没看注释**
+   - 用户掏 DeepSeek API Docs 官方截图：MODEL = `deepseek-v4-flash` / `deepseek-v4-pro`，PRICING cache miss in $0.14/1M + out $0.28/1M —— 跟代码 `_PRICE_TABLE["deepseek-v4-flash"] = (0.14/1M, 0.28/1M)` **完全对得上**
+   - 我反向推荐用户改默认值 + 加价格表，是基于**错误前提**的"修复"
+   - 在 lessons.md 还自信地写下 R18: "plan-期占位 magic string ... pydantic 默认值不是 spec，是个待验证假设" —— **结论错的**，plan 本身才是 spec，我训练数据才是过期假设
+
+**正确做法**：
+
+1. Windows 任何 `sys.stdout.write(可能含 emoji 内容)` 入口都 reconfigure 一次：
+   ```python
+   try:
+       sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+   except Exception:
+       pass  # 极端环境（如 fileno 不可用）兜底
+   sys.stdout.write(html)
+   ```
+   或者写文件时显式 `encoding="utf-8"`，这条已是项目惯例 —— 但 stdout 是个隐性盲区
+2. **质疑 plan/代码里看着陌生的字符串前，先做三步**：①`grep` 同名字符串在代码里有没有上下文注释（如 `_PRICE_TABLE` 命中？注释解释来源？）②读 provider 官方 docs（而不是凭训练数据）③只在前两步都不一致时才质疑。我训练数据知识截止 2026-01，provider 模型矩阵这种变动频繁的字段**必查 docs**
+3. plan 阶段写依赖 provider 外部字段（model 名、host、API 路径）时，**留 docs 链接锚 + 验证日期**：
+   ```python
+   # 价格 + 模型名按 https://api-docs.deepseek.com/quick_start/pricing 2026-05-21 核对
+   _PRICE_TABLE = { "deepseek-v4-flash": (0.14/1M, 0.28/1M), ... }
+   ```
+   这样未来 AI 看到陌生字段 → 顺着 docs 链接 + 日期判断是否过期，而不是凭训练数据脑补
+
+**规则**：
+
+- **R17**: Windows Python CLI 任何往 `sys.stdout` 写"可能含 emoji/CJK 之外字符"的内容，前面必须 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` —— 因为 Windows stdout 默认 cp936/GBK 抛 UnicodeEncodeError 静默崩
+- **R18 (撤回旧版 + 反向写)**: AI 训练数据里关于 LLM provider 模型矩阵 / 价格 / 端点的信息是**易过期常识**，跟 plan/代码冲突时**默认信 plan + 现场 docs**，而不是默认信训练数据。质疑前必读：①代码同名上下文 ②provider 官方 docs（截图/链接）。**真名是 `deepseek-v4-flash` / `deepseek-v4-pro`**（V4 系列，1M ctx，2026-05-21 确认），`deepseek-chat` 是即将弃用的旧别名
+- **R19**: LLM 摘要类功能"真机冒烟"必须跑 ≥3 scenarios：① happy path ② 单 provider 假 key → fallback ③ 双 provider 假 key → 主流程不崩 exit 0；其中 ③ 验 red line 4（LLM ≠ dashboard 失败）
+- **R20**: plan/代码里写 provider 外部依赖字段（模型名 / API 端点 / 价格表）时，**邻近 docs 链接 + 核对日期**注释。让未来 AI 看到陌生字段时顺锚追源，而不是凭训练数据脑补
+
+---
+
 ## 2026-05-20 — 本地 xray/v2ray 静默拦 lib.sjtu.edu.cn × my.sjtu app menu 是 L0 金矿 × chrome MCP 复用日常 profile
 
 **触发情境**：S3 phase 2 library 子系统 L0 调研。chrome navigate `weijieyue.lib.sjtu.edu.cn:8080/wechat/sjtu/nowlend` 持续 503，连续三轮误判（"服务器挂"→"需 referer"→"必须经 my.sjtu SSO"→"假设 Primo SAML federation"），同样 URL `curl --noproxy "*"` 一次 200 OK + 完整 17KB HTML。最终发现根因是本地代理。绕大半天才回归"SJTU 自建简单 Servlet"真相。
