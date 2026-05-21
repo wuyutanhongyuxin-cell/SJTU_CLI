@@ -1087,3 +1087,32 @@ format!(r#"<m id="{msg_id}" read="0" html="0" max="50000"/>"#)
 5. **CP 前置健康检查**——`status` 命令查的是本地 soft TTL，**不真验子系统鉴权**；如果 plan 真机 CP 全过依赖某个子系统鉴权，应该在 plan 里加"先跑一个最小请求 sanity check"步骤，让 plan-level bug 暴露在更早环节而非 CP commit 阶段。
 
 **反例**：implementer 看 plan 字面"R7 真机 CP-M1/M2/M3/M4"以为只是跑命令收输出，结果跑 CP-M1 就报 SessionExpired；4 层手动 trace（SSO 跟链 → ZM_AUTH_TOKEN extracted → token payload decode → SOAP POST 500 → fault body 全文 → /zimbra/mail HTML csrfToken JS 字面）才锁定 root cause。教训：CP 阶段的"用户触发 4 项"不是黑盒跑命令，是 plan-level 漏洞最容易暴露的时刻；implementer 应该备好 trace 工具链。
+
+---
+
+## 2026-05-21 — Windows PowerShell 5.1 × 无 BOM UTF-8 PS1 × 中文注释字节错位
+
+**触发情境**：sjtu-daily Task 8 implementer 用普通 Write 工具创建 `install-task.ps1`（含中文注释 + 反引号续行），首次跑 `powershell -ExecutionPolicy Bypass -File .\install-task.ps1` 报 `New-ScheduledTaskPrincipal : 术语 -UserId 不是 cmdlet ... 名称` —— 看似 `-UserId` 参数不识别，但 plan 字面正确。重写加 BOM 后立即正常。
+
+**错误模式**：
+
+1. **Write/Edit 工具默认无 BOM UTF-8 写盘** —— 跨平台便携，但 Windows PowerShell 5.1（powershell.exe，非 PowerShell Core 7+）默认按 ANSI（CP936 简中环境是 GBK）解析无 BOM 文件
+2. **中文字节宽度错位让反引号续行隐形失效** —— UTF-8 中文 3 字节 vs GBK 2 字节，PS 5.1 按 GBK 切片后，反引号 `` ` `` 不在行尾，下一行 `-UserId $env:USERNAME` 被当作独立语句而非 `New-ScheduledTaskPrincipal` 的续行参数
+3. **报错位置离 root cause 极远** —— 报错指向"`-UserId` 不识别"，但根因是上一行（或上几行）反引号失效。看 plan 与文件 diff 完全一致，找不到错
+4. **PowerShell Core 7+（pwsh.exe）不受影响** —— PS 7 默认 UTF-8 解析无 BOM 文件。Windows 11 自带的是 5.1，多数用户没装 PS 7
+
+**正确做法**：
+
+1. 任何含**非 ASCII 字符**（中文注释 / emoji）的 `.ps1` 文件，写盘必须加 UTF-8 BOM
+2. Implementer 工具链：
+   - `[System.IO.File]::WriteAllText($path, $content, (New-Object System.Text.UTF8Encoding $true))` —— `$true` 表示带 BOM
+   - 或 PowerShell：`$content | Out-File -FilePath $path -Encoding utf8`（PS 5.1 的 `utf8` 默认带 BOM；PS 7 需 `-Encoding utf8BOM`）
+3. 验证：`Get-Content $path -Encoding Byte -TotalCount 3` —— 输出 `239 187 191` 即 BOM (`EF BB BF`)
+4. 跨平台脚本（`.sh`/`.py`）不要加 BOM —— Linux 工具链 BOM 不友好。BOM 是 Windows PS 5.1 专属补丁
+
+**规则**：
+
+- **R17**: 含中文注释 / emoji 的 `.ps1` 文件**必须** UTF-8 BOM。Write 工具默认无 BOM，要后置 `[System.IO.File]::WriteAllText + UTF8Encoding($true)` 修
+- **R18**: PowerShell 脚本报"参数不识别"但 plan 字面正确时，先怀疑**编码问题**（PS 5.1 GBK 错误解析 UTF-8 多字节字符让续行失效），不是 plan 漏内容
+- **R19**: 跨 shell 验证：Windows PS 5.1 + PS 7 + Bash 都跑一遍发现的问题更早；CI 至少跑 5.1（最普及）
+- **R20**: `Start-ScheduledTask` 后 `Start-Sleep 5` 不够验证 `LastTaskResult` —— 首次 venv 激活 + Python import 慢，常 25 秒才收敛。改 `do { Start-Sleep 3 } until ((Get-ScheduledTaskInfo).LastTaskResult -ne 267009)` 轮询，267009 = 0x41301 = "task still running"
